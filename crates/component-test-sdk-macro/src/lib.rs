@@ -248,17 +248,35 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
 
         #[allow(unused_imports)]
         use ::component_test_sdk::prelude::*;
-        pub use __ct_bindings::lann::component_test::test_context::Context as TestContext;
+        /// The runner-provided per-case context: a curated wrapper over
+        /// the raw contract binding. Unwrapped contract methods remain
+        /// reachable through `Deref`.
+        #[repr(transparent)]
+        pub struct TestContext(__ct_bindings::lann::component_test::test_context::Context);
 
-        /// Ergonomic wrapper over the raw binding (`diagnostic` takes
-        /// `String`; this takes anything stringy).
-        pub trait __CtDiagExt {
-            #[allow(async_fn_in_trait)]
-            async fn diag(&self, msg: impl Into<::std::string::String>);
+        impl TestContext {
+            fn __from_raw(
+                raw: &__ct_bindings::lann::component_test::test_context::Context,
+            ) -> &TestContext {
+                // Sound: repr(transparent) single-field wrapper.
+                unsafe {
+                    &*(raw as *const __ct_bindings::lann::component_test::test_context::Context
+                        as *const TestContext)
+                }
+            }
+
+            /// Report a diagnostic message (the sideband; never affects
+            /// the verdict). Runners surface these with the case's
+            /// results; delivery may await the observer.
+            pub async fn diag(&self, msg: impl Into<::std::string::String>) {
+                self.0.diagnostic(msg.into()).await
+            }
         }
-        impl __CtDiagExt for TestContext {
-            async fn diag(&self, msg: impl Into<::std::string::String>) {
-                self.diagnostic(msg.into()).await
+
+        impl ::std::ops::Deref for TestContext {
+            type Target = __ct_bindings::lann::component_test::test_context::Context;
+            fn deref(&self) -> &Self::Target {
+                &self.0
             }
         }
 
@@ -293,9 +311,10 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
 
             async fn run(
                 &self,
-                ctx: &TestContext,
+                ctx: &__ct_bindings::lann::component_test::test_context::Context,
             ) -> Result<(), __ct_bindings::exports::lann::component_test::tests::Outcome> {
                 use __ct_bindings::exports::lann::component_test::tests::Outcome;
+                let ctx = TestContext::__from_raw(ctx);
                 let verdict = __ct_with_registry(|reg| (reg.get(self.index).unwrap().run)(ctx));
                 verdict.await.map_err(|failure| match failure {
                     ::component_test_sdk::Failure::Failed(d) => Outcome::Failed(d),
@@ -373,7 +392,7 @@ fn walk_items(
                         0,
                         Item::Verbatim(quote! {
                             #[allow(unused_imports)]
-                            use super::{TestContext, __CtDiagExt};
+                            use super::TestContext;
                             #[allow(unused_imports)]
                             use ::component_test_sdk::prelude::*;
                         }),

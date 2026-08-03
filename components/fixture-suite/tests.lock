@@ -3,7 +3,7 @@ version = "0.1"
 
 [suite]
 name = "fixture_suite"
-artifact_sha256 = "0abfe6c06d4da66e729841cd205dae3edcd6327db5274da4e8d2e0f0b63823fe"
+artifact_sha256 = "a7cbc351fc83b19339295d3635bcb07a6b48d5dc25a818f2e989a349519dd4b4"
 
 [[case]]
 name = "fixture/hsm/attest"
