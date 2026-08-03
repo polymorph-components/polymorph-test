@@ -94,7 +94,7 @@ impl Lockfile {
         let mut positive: BTreeSet<&str> = BTreeSet::new();
         let mut negative: BTreeSet<&str> = BTreeSet::new();
         for entry in &self.case {
-            if !seen.insert(entry.name.as_str()) {
+            if !seen.insert(entry.name.clone()) {
                 bail!("duplicate case name `{}`", entry.name);
             }
             component_test_core::Tags::new(entry.tags.clone())
@@ -144,13 +144,15 @@ impl Lockfile {
         &self,
         reported: impl IntoIterator<Item = &'a str>,
     ) -> anyhow::Result<()> {
-        let inventory: BTreeSet<&str> = self.case.iter().map(|c| c.name.as_str()).collect();
+        let inventory: BTreeSet<std::borrow::Cow<'_, str>> =
+            self.case.iter().map(|c| c.name.as_str()).collect();
         let mut remaining = inventory.clone();
         let mut seen_generated = BTreeSet::new();
         let mut extra = BTreeMap::new();
         for name in reported {
-            if inventory.contains(name) {
-                if !remaining.remove(name) {
+            let key = std::borrow::Cow::Borrowed(name);
+            if inventory.contains(&key) {
+                if !remaining.remove(&key) {
                     bail!("case `{name}` reported more than once");
                 }
             } else if self.prefix_of(name).is_some() {
@@ -170,7 +172,11 @@ impl Lockfile {
         if !remaining.is_empty() {
             bail!(
                 "lockfile case(s) without a report: {}",
-                remaining.iter().copied().collect::<Vec<_>>().join(", ")
+                remaining
+                    .iter()
+                    .map(|c| c.as_ref())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             );
         }
         Ok(())

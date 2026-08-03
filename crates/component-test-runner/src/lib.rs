@@ -357,11 +357,11 @@ impl<D: RunnerView + 'static> Runner<D> {
         if let Some(inv) = &inventory {
             let enumerated: std::collections::BTreeSet<&str> =
                 names.iter().map(|s| s.as_str()).collect();
-            let mut missing: Vec<&str> = inv
+            let mut missing: Vec<String> = inv
                 .cases
                 .iter()
-                .map(|e| e.name.as_str())
-                .filter(|n| !enumerated.contains(n))
+                .map(|e| e.name.to_string())
+                .filter(|n| !enumerated.contains(n.as_str()))
                 .collect();
             let mut unrecorded: Vec<&str> = names
                 .iter()

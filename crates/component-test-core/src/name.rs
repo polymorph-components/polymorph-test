@@ -12,7 +12,7 @@
 
 use core::fmt;
 
-use arcstr::ArcStr;
+use arcstr::{ArcStr, Substr};
 
 /// Maximum total name length in bytes.
 pub const MAX_NAME_LEN: usize = 256;
@@ -20,11 +20,6 @@ pub const MAX_NAME_LEN: usize = 256;
 pub const MAX_SEGMENT_LEN: usize = 64;
 /// Custom section name reserved for feature-mark metadata.
 pub const TAGS_SECTION: &str = "component-test:tags@0.1";
-
-/// A validated case name. Cheap to clone (refcounted; zero-cost for
-/// `arcstr::literal!`-backed names, which the SDK macros emit).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct CaseName(ArcStr);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NameError {
@@ -90,14 +85,25 @@ pub fn is_wit_label(s: &str) -> Option<&'static str> {
     None
 }
 
+/// A validated case name: a (possibly empty) grouping prefix plus a
+/// single-segment leaf, both sharing refcounted buffers. Invariant:
+/// slashes appear only in the prefix, so representation is canonical
+/// and equality/ordering/hashing derive structurally. The logical name
+/// is `prefix + "/" + leaf` (just `leaf` when the prefix is empty).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CaseName {
+    prefix: Substr,
+    leaf: Substr,
+}
+
 impl CaseName {
     /// Validate `name` against the normative grammar.
     pub fn parse(name: &str) -> Result<Self, NameError> {
         Self::new(ArcStr::from(name))
     }
 
-    /// Validate an already-shared string against the grammar (no
-    /// allocation; the SDK macros pass `arcstr::literal!` values).
+    /// Validate an already-shared string against the grammar (no copy:
+    /// prefix and leaf are substrings of `name`).
     pub fn new(name: ArcStr) -> Result<Self, NameError> {
         if name.is_empty() {
             return Err(NameError::Empty);
@@ -105,25 +111,12 @@ impl CaseName {
         if name.len() > MAX_NAME_LEN {
             return Err(NameError::TooLong(name.len()));
         }
-        let segments: Vec<&str> = name.split('/').collect();
-        let last = segments.len() - 1;
-        for (i, seg) in segments.iter().enumerate() {
-            if seg.is_empty() {
-                return Err(NameError::EmptySegment);
-            }
-            if seg.len() > MAX_SEGMENT_LEN {
-                return Err(NameError::SegmentTooLong(seg.to_string()));
-            }
-            if *seg == "." || *seg == ".." {
-                return Err(NameError::DotSegment(seg.to_string()));
-            }
-            if let Some(ch) = seg.chars().find(|c| !segment_char_ok(*c)) {
-                return Err(NameError::BadChar {
-                    segment: seg.to_string(),
-                    ch,
-                });
-            }
-            if i != last {
+        let split = name.rfind('/');
+        // Validate without allocating: everything before the final
+        // slash is prefix (label segments), the rest is the leaf.
+        if let Some(i) = split {
+            for seg in name[..i].split('/') {
+                validate_segment(seg)?;
                 if let Some(reason) = is_wit_label(seg) {
                     return Err(NameError::NonLabelPrefix {
                         segment: seg.to_string(),
@@ -131,40 +124,124 @@ impl CaseName {
                     });
                 }
             }
+            validate_segment(&name[i + 1..])?;
+        } else {
+            validate_segment(&name)?;
         }
-        Ok(CaseName(name))
+        Ok(match split {
+            Some(i) => CaseName {
+                prefix: name.substr(..i),
+                leaf: name.substr(i + 1..),
+            },
+            None => CaseName {
+                prefix: Substr::new(),
+                leaf: name.substr(..),
+            },
+        })
     }
 
-    pub fn as_str(&self) -> &str {
-        &self.0
+    /// Build a generated-case name from a row's static prefix (label
+    /// segments only) and the case's relative name. Single-segment
+    /// relative names attach without any string assembly; multi-segment
+    /// ones fold their head into the prefix (one allocation).
+    /// Equality/order/hash match `parse("{prefix}/{leaf}")` exactly.
+    pub fn prefixed(prefix: ArcStr, leaf: ArcStr) -> Result<Self, NameError> {
+        if prefix.is_empty() {
+            return Self::new(leaf);
+        }
+        if prefix.len() + 1 + leaf.len() > MAX_NAME_LEN {
+            return Err(NameError::TooLong(prefix.len() + 1 + leaf.len()));
+        }
+        if leaf.is_empty() {
+            return Err(NameError::EmptySegment);
+        }
+        for seg in prefix.split('/').chain(leaf.split('/').rev().skip(1)) {
+            validate_segment(seg)?;
+            if let Some(reason) = is_wit_label(seg) {
+                return Err(NameError::NonLabelPrefix {
+                    segment: seg.to_string(),
+                    reason,
+                });
+            }
+        }
+        match leaf.rfind('/') {
+            None => {
+                validate_segment(&leaf)?;
+                Ok(CaseName {
+                    prefix: prefix.substr(..),
+                    leaf: leaf.substr(..),
+                })
+            }
+            Some(i) => {
+                validate_segment(&leaf[i + 1..])?;
+                // Slashes live in the prefix (canonical form): fold the
+                // relative name's head into it.
+                let joined = ArcStr::from(format!("{prefix}/{}", &leaf[..i]));
+                Ok(CaseName {
+                    prefix: joined.substr(..),
+                    leaf: leaf.substr(i + 1..),
+                })
+            }
+        }
     }
 
-    /// Segments of the name.
+    /// The logical name. Borrowed for single-segment names; assembled
+    /// otherwise.
+    pub fn as_str(&self) -> std::borrow::Cow<'_, str> {
+        if self.prefix.is_empty() {
+            std::borrow::Cow::Borrowed(&self.leaf)
+        } else {
+            std::borrow::Cow::Owned(format!("{}/{}", self.prefix, self.leaf))
+        }
+    }
+
+    /// Segments of the logical name.
     pub fn segments(&self) -> impl Iterator<Item = &str> {
-        self.0.split('/')
+        let prefix = (!self.prefix.is_empty()).then_some(self.prefix.split('/'));
+        prefix
+            .into_iter()
+            .flatten()
+            .chain(std::iter::once(&*self.leaf))
     }
 
-    /// The grouping prefix (everything but the leaf), if any.
+    /// The grouping prefix (everything but the final segment), if any.
     pub fn prefix(&self) -> Option<&str> {
-        self.0.rsplit_once('/').map(|(p, _)| p)
+        (!self.prefix.is_empty()).then_some(&self.prefix)
     }
 
-    /// The leaf segment.
+    /// The final segment.
     pub fn leaf(&self) -> &str {
-        self.0.rsplit_once('/').map(|(_, l)| l).unwrap_or(&self.0)
+        &self.leaf
     }
 }
 
 impl fmt::Display for CaseName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
+        if !self.prefix.is_empty() {
+            f.write_str(&self.prefix)?;
+            f.write_str("/")?;
+        }
+        f.write_str(&self.leaf)
     }
 }
 
-impl AsRef<str> for CaseName {
-    fn as_ref(&self) -> &str {
-        &self.0
+fn validate_segment(seg: &str) -> Result<(), NameError> {
+    if seg.is_empty() {
+        return Err(NameError::EmptySegment);
     }
+    if seg.len() > MAX_SEGMENT_LEN {
+        return Err(NameError::SegmentTooLong(seg.to_string()));
+    }
+    if seg == "." || seg == ".." {
+        return Err(NameError::DotSegment(seg.to_string()));
+    }
+    if let Some(ch) = seg.chars().find(|c| !segment_char_ok(*c)) {
+        return Err(NameError::BadChar {
+            segment: seg.to_string(),
+            ch,
+        });
+    }
+    Ok(())
 }
 
 #[cfg(feature = "serde")]
@@ -174,7 +251,7 @@ mod serde_impl {
 
     impl Serialize for CaseName {
         fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-            s.serialize_str(&self.0)
+            s.collect_str(self)
         }
     }
 
@@ -271,9 +348,38 @@ mod tests {
     }
 
     #[test]
+    fn prefixed_matches_parsed() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let parsed = CaseName::parse("aes-gcm/wycheproof/tc305/whole").unwrap();
+        let split = CaseName::prefixed(
+            arcstr::literal!("aes-gcm/wycheproof"),
+            arcstr::literal!("tc305/whole"),
+        )
+        .unwrap();
+        assert_eq!(parsed, split);
+        assert_eq!(parsed.cmp(&split), core::cmp::Ordering::Equal);
+        let h = |n: &CaseName| {
+            let mut s = DefaultHasher::new();
+            n.hash(&mut s);
+            s.finish()
+        };
+        assert_eq!(h(&parsed), h(&split));
+        assert_eq!(parsed.to_string(), split.to_string());
+        assert_eq!(split.as_str(), "aes-gcm/wycheproof/tc305/whole");
+        assert_eq!(split.leaf(), "whole");
+        assert_eq!(split.prefix().as_deref(), Some("aes-gcm/wycheproof/tc305"));
+        // grammar still enforced through the split constructor
+        assert!(CaseName::prefixed(arcstr::literal!("375"), arcstr::literal!("x")).is_err());
+        assert!(CaseName::prefixed(arcstr::literal!("a"), arcstr::literal!("B")).is_err());
+        assert!(CaseName::prefixed(arcstr::literal!("a"), arcstr::literal!("375/leaf")).is_err());
+        assert!(CaseName::prefixed(arcstr::literal!("a"), arcstr::literal!("x_y")).is_ok());
+    }
+
+    #[test]
     fn accessors() {
         let n = CaseName::parse("sample/math/add").unwrap();
-        assert_eq!(n.prefix(), Some("sample/math"));
+        assert_eq!(n.prefix().as_deref(), Some("sample/math"));
         assert_eq!(n.leaf(), "add");
         let n = CaseName::parse("solo").unwrap();
         assert_eq!(n.prefix(), None);

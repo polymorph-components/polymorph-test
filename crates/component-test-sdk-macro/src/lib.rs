@@ -206,8 +206,9 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
                 // refcount bumps.
                 let row_tags = ::component_test_sdk::Tags::parse_all::<&str>(&[#(#tags),*])
                     .expect("row tags validated at expansion");
+                let row_prefix = ::component_test_sdk::arcstr::literal!(#prefix);
                 for generated in #path() {
-                    registry.generated(#prefix, &row_tags, generated);
+                    registry.generated(&row_prefix, &row_tags, generated);
                 }
             }
         }
@@ -264,7 +265,7 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
 
         impl __ct_bindings::exports::lann::component_test::tests::GuestTestCase for __CtCase {
             fn name(&self) -> String {
-                __ct_with_registry(|reg| reg.get(self.index).unwrap().0.as_str().to_string())
+                __ct_with_registry(|reg| reg.get(self.index).unwrap().0.to_string())
             }
 
             async fn run(

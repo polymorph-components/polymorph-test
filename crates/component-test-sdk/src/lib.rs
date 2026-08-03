@@ -165,10 +165,11 @@ impl Registry {
 
     /// Register a generated case under `prefix` with the row's `tags`.
     /// Panics on grammar violations or duplicates — harness bugs.
-    pub fn generated(&mut self, prefix: &str, tags: &Tags, case: GeneratedCase) {
-        let name = ArcStr::from(format!("{prefix}/{}", case.leaf));
-        let name =
-            CaseName::new(name).unwrap_or_else(|e| panic!("invalid generated case name: {e}"));
+    pub fn generated(&mut self, prefix: &ArcStr, tags: &Tags, case: GeneratedCase) {
+        // Zero string assembly: the name shares the row's prefix (a
+        // refcount bump) and the case's leaf.
+        let name = CaseName::prefixed(prefix.clone(), case.leaf)
+            .unwrap_or_else(|e| panic!("invalid generated case name under `{prefix}`: {e}"));
         let entry = RegisteredCase {
             tags: tags.clone(),
             run: case.run,
