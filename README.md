@@ -61,6 +61,14 @@ name    = segment *( "/" segment )          ; 1–256 bytes total
 segment = 1*64 of [a-z 0-9 - _ .]           ; a segment is never "." or ".."
 ```
 
+All segments except the last must additionally be valid WIT labels
+(kebab-case: words of `[a-z][a-z0-9]*` joined by `-`). This makes
+hierarchical prefixes project verbatim into nested instance names under
+composition and introspection (no mangling layer for prefixes; the leaf —
+where encoded parameters concentrate — keeps the full charset and needs
+escaping in export-name contexts regardless). Strictness here is
+deliberately maximal: loosening later is compatible, tightening never is.
+
 - **Byte equality is the only equality.** Lowercase ASCII only: no Unicode
   normalization questions, no case-collisions on case-insensitive
   filesystems. SDKs normalize source-language names at declaration time;

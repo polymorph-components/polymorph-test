@@ -56,10 +56,11 @@ interface tests {
         /// Stable identity, unique within the suite: hierarchical
         /// `/`-separated segments (e.g. `group/source/case`), each segment
         /// 1–64 bytes of `[a-z0-9._-]` (never `.` or `..`), whole name at
-        /// most 256 bytes. Stable across calls and across instances of the
-        /// same suite artifact; compared by byte equality. Duplicates
-        /// within a suite are a harness bug. Runners and reporting tools
-        /// group by prefix.
+        /// most 256 bytes; every segment except the last is additionally a
+        /// valid WIT label (kebab-case). Stable across calls and across
+        /// instances of the same suite artifact; compared by byte
+        /// equality. Duplicates within a suite are a harness bug. Runners
+        /// and reporting tools group by prefix.
         name: func() -> string;
 
         /// Run the case. The returned result is the sole verdict — `ok` is
