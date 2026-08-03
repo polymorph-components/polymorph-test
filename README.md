@@ -126,9 +126,15 @@ In decreasing order of load-bearing:
 - **`run` never traps.** Expectation mismatches are `failed`; a trap is
   recorded as that case's failure and the instance treated as poisoned
   (mandatorily — a trapped instance is permanently unusable). A
-  runner-imposed timeout is treated as a trap: cancellation is cooperative
-  in the Component Model, so a hung case can only be abandoned with its
-  instance. Runners recover by re-instantiating and resuming by case name.
+  runner-imposed hang guard tripping is treated as a trap: cancellation is
+  cooperative in the Component Model, so a hung case can only be abandoned
+  with its instance. Guards should be longer than any SUT-internal
+  operation timeout, so that genuine failures classify as `failed`
+  outcomes and only true hangs trip the guard. Instance granularity is
+  runner policy: a runner may instantiate per case (isolation, parallel
+  replication, trivial trap containment) or share an instance across
+  cases (cheap, but poisoning then costs the remainder — recover by
+  re-instantiating and resuming by case name).
 - **The outcome variant is closed.** Variant cases in return position have
   no compatible growth path, so `outcome` is designed never to need one:
   pass/fail/skip is the trichotomy every test framework has kept stable for
@@ -164,17 +170,28 @@ tooling. Test both before anything leans on them.
 
 ## Provenance
 
-Synthesized from two sources:
+Synthesized from one lineage and one composition model:
 
 - [`lann/wasi-test`](https://github.com/lann/wasi-test) — the composition
   model: suite exports, runner imports, the linker registers.
-- [`lann/component-webcrypto`](https://github.com/lann/component-webcrypto)'s
-  conformance system — the operational model, hardened at ~8000-case scale:
-  self-describing inventories, capability manifests, lockfiles, one results
-  wire format, many adapters, one aggregator. The feature-mark scheme is a
-  restructuring of its declared-missing-features + decline-assertion
-  design, with the decline branch factored out into paired `!feature`
-  cases.
+- The conformance-suite lineage:
+  [`lann/component-webrtc-datachannels`](https://github.com/lann/component-webrtc-datachannels)'s
+  suite (two-party, networked, timing-shaped; environment executors,
+  expected-fail with unexpected-pass enforcement), from which
+  [`lann/component-webcrypto`](https://github.com/lann/component-webcrypto)'s
+  system forked and evolved (pure-compute, ~8000 cases; self-describing
+  inventories, capability manifests, lockfiles, one results wire format,
+  many adapters, one aggregator). The feature-mark scheme restructures
+  webcrypto's declared-missing-features + decline-assertion design, with
+  the decline branch factored out into paired `!feature` cases.
+
+Because this is a single evolving practice, agreement between those
+systems is weak evidence (possibly inertia) while their *divergences* are
+strong evidence of what each domain forced. Independent support so far is
+limited to external framework precedent (pytest, libtest-mimic, JUnit,
+NUnit, Go), Component Model ABI constraints, and the prototype's
+empirical findings; evaluation against an unrelated-lineage corpus (e.g.
+WPT, `go test`, LLVM lit) is tracked in the issues.
 
 ## Scope (tracked in issues)
 
