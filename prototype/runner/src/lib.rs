@@ -44,7 +44,7 @@ impl RunGuest for Runner {
         let stdout_done = write_via_stream(rx);
         let mut out = Out { tx };
 
-        let cases = all();
+        let cases = all().await;
         let total = cases.len();
         let mut passed = 0;
         let mut failed = 0;

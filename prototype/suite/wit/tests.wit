@@ -72,7 +72,10 @@ interface tests {
     /// Deterministic: the same suite yields the same cases in the same
     /// order (lockfiles depend on this). Target-applicability filtering
     /// happens outside this contract, from static feature-mark metadata.
-    all: func() -> list<test-case>;
+    /// `async` so that implementations may block (e.g. dynamically
+    /// constructed suites, or adapters draining another enumeration
+    /// source); sync implementations remain legal as always.
+    all: async func() -> list<test-case>;
 }
 
 /// A test suite: carries cases and exports them to a runner.

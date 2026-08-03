@@ -94,7 +94,7 @@ struct Suite;
 impl Guest for Suite {
     type TestCase = Case;
 
-    fn all() -> Vec<TestCase> {
+    async fn all() -> Vec<TestCase> {
         Case::all().into_iter().map(TestCase::new).collect()
     }
 }

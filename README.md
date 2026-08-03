@@ -33,7 +33,7 @@ interface tests {
         run: async func(ctx: borrow<context>) -> result<_, outcome>;
     }
 
-    all: func() -> list<test-case>;
+    all: async func() -> list<test-case>;
 }
 
 world suite  { import test-context; export tests; }
