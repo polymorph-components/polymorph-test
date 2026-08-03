@@ -69,6 +69,14 @@ use syn::{
 /// - **Inventory**: every case (and each generator's `prefix/*`) is
 ///   recorded in a custom section for execution-free lockfile
 ///   generation; `#[cfg]` on cases is therefore rejected.
+/// - **`#[case_row(prefix = "...")]`** is `#[case_generator]`'s
+///   direct-registration sibling for very large corpora: the fn has
+///   signature `fn(&mut Registry, prefix: &ArcStr, tags: &Tags)` and
+///   registers its cases itself (typically via
+///   `Registry::generated_named` with pre-split names). Identical
+///   inventory record and prefix validation; the fn is responsible for
+///   keeping every registered name under `prefix` (enforced at
+///   registration).
 /// - **Shared setup/fixtures**: plain items (statics, helpers, `use`)
 ///   inside the module are untouched — use `std::sync::LazyLock` for
 ///   expensive shared tables.
@@ -139,6 +147,10 @@ struct GenDef {
     tags: Vec<String>,
     fn_path: Vec<Ident>,
     span: proc_macro2::Span,
+    /// `#[case_row]` rather than `#[case_generator]`: the fn registers
+    /// its row directly (`fn(&mut Registry, &ArcStr, &Tags)`) instead
+    /// of yielding `Case`s. Same inventory record, same validation.
+    is_row: bool,
 }
 
 /// A tag declaration level: feature name -> full tag string.
@@ -200,6 +212,19 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
         let prefix = &g.prefix;
         let tags = &g.tags;
         let path = path_tokens(&g.fn_path);
+        let invoke = if g.is_row {
+            // The row fn registers directly (pre-split names, shared
+            // tags — the corpus fast path).
+            quote! {
+                #path(&mut registry, &row_prefix, &row_tags);
+            }
+        } else {
+            quote! {
+                for generated in #path() {
+                    registry.generated(&row_prefix, &row_tags, generated);
+                }
+            }
+        };
         quote! {
             {
                 // Row tags parsed once; per-case attachment is
@@ -207,9 +232,7 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
                 let row_tags = ::component_test_sdk::Tags::parse_all::<&str>(&[#(#tags),*])
                     .expect("row tags validated at expansion");
                 let row_prefix = ::component_test_sdk::arcstr::literal!(#prefix);
-                for generated in #path() {
-                    registry.generated(&row_prefix, &row_tags, generated);
-                }
+                #invoke
             }
         }
     });
@@ -394,12 +417,15 @@ fn walk_items(
                         ));
                     }
                 }
-                if f.attrs
-                    .iter()
-                    .any(|a| a.path().is_ident("case") || a.path().is_ident("case_generator"))
-                {
+                if f.attrs.iter().any(|a| {
+                    a.path().is_ident("case")
+                        || a.path().is_ident("case_generator")
+                        || a.path().is_ident("case_row")
+                }) {
                     reject_cfg(&f.attrs, f.span())?;
-                    check_case_fn_shape(f)?;
+                    if !f.attrs.iter().any(|a| a.path().is_ident("case_row")) {
+                        check_case_fn_shape(f)?;
+                    }
                     // The generated registry lives at the suite-module
                     // root; collected fns must be reachable from there.
                     f.vis = syn::Visibility::Public(Default::default());
@@ -420,7 +446,7 @@ fn walk_items(
                         has_ctx: !f.sig.inputs.is_empty(),
                         span: f.sig.ident.span(),
                     });
-                } else if let Some(gen_attr) = take_generator_attr(f)? {
+                } else if let Some((gen_attr, is_row)) = take_generator_attr(f)? {
                     let mut scope = inherited.clone();
                     merge_scope(&mut scope, gen_attr.tags, f.span())?;
                     let prefix = match gen_attr.prefix {
@@ -428,7 +454,7 @@ fn walk_items(
                         None => {
                             return Err(Error::new(
                                 f.span(),
-                                "#[case_generator] requires prefix = \"...\"",
+                                "#[case_generator]/#[case_row] requires prefix = \"...\"",
                             ))
                         }
                     };
@@ -439,6 +465,7 @@ fn walk_items(
                         tags: scope.iter().map(|(_, t)| t.clone()).collect(),
                         fn_path,
                         span: f.sig.ident.span(),
+                        is_row,
                     });
                 }
             }
@@ -483,12 +510,16 @@ fn take_case_attr(f: &mut ItemFn) -> Result<Option<CaseAttr>> {
     Ok(Some(out))
 }
 
-fn take_generator_attr(f: &mut ItemFn) -> Result<Option<GenAttr>> {
-    let Some(pos) = f
-        .attrs
-        .iter()
-        .position(|a| a.path().is_ident("case_generator"))
-    else {
+fn take_generator_attr(f: &mut ItemFn) -> Result<Option<(GenAttr, bool)>> {
+    let Some((pos, is_row)) = f.attrs.iter().enumerate().find_map(|(i, a)| {
+        if a.path().is_ident("case_generator") {
+            Some((i, false))
+        } else if a.path().is_ident("case_row") {
+            Some((i, true))
+        } else {
+            None
+        }
+    }) else {
         return Ok(None);
     };
     let attr = f.attrs.remove(pos);
@@ -506,7 +537,7 @@ fn take_generator_attr(f: &mut ItemFn) -> Result<Option<GenAttr>> {
             Err(meta.error("expected `prefix = \"...\"` or `tags(\"...\")`"))
         }
     })?;
-    Ok(Some(out))
+    Ok(Some((out, is_row)))
 }
 
 /// `#[cases(tags("a", "!b"))]` on a module.

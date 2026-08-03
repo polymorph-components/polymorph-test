@@ -178,6 +178,30 @@ impl Registry {
             panic!("duplicate case name `{name}`");
         }
     }
+
+    /// Register a generated case whose name was already split into
+    /// canonical (prefix, leaf) form (see [`CaseName::from_parts`]) —
+    /// the allocation-free fast path for large corpora: no name
+    /// assembly, no `GeneratedCase` intermediary, a single boxed
+    /// closure, tags shared by refcount. `row_prefix` is the generator
+    /// row's static prefix; the name must sit under it (that inventory
+    /// invariant is what the runner's drift cross-check relies on).
+    /// Panics on violations — harness bugs.
+    pub fn generated_named(&mut self, row_prefix: &str, tags: &Tags, name: CaseName, run: CaseFn) {
+        let under_row = name
+            .prefix()
+            .is_some_and(|p| p.strip_prefix(row_prefix).is_some_and(|r| r.is_empty() || r.starts_with('/')));
+        if !under_row {
+            panic!("generated case `{name}` is not under its row prefix `{row_prefix}`");
+        }
+        let entry = RegisteredCase {
+            tags: tags.clone(),
+            run,
+        };
+        if self.cases.insert(name.clone(), entry).is_some() {
+            panic!("duplicate case name `{name}`");
+        }
+    }
 }
 
 /// Register an `async fn(&Context) -> Verdict` as a case:
@@ -310,6 +334,30 @@ mod tests {
         }
         crate::case!(reg, "a/x", [], ok);
         crate::case!(reg, "a/x", [], ok);
+    }
+
+    #[test]
+    fn generated_named_registers_under_row() {
+        let mut reg: Registry = Registry::new();
+        let full = ArcStr::from("row/sub/tc1/whole");
+        let name =
+            CaseName::from_parts(full.substr(..11), full.substr(12..)).unwrap();
+        let tags = Tags::default();
+        reg.generated_named("row/sub", &tags, name, Box::new(|_| Box::pin(async { Ok(()) })));
+        assert_eq!(reg.get(0).unwrap().0.as_str(), "row/sub/tc1/whole");
+    }
+
+    #[test]
+    #[should_panic(expected = "not under its row prefix")]
+    fn generated_named_rejects_foreign_names() {
+        let mut reg: Registry = Registry::new();
+        let name = CaseName::parse("other/tc1").unwrap();
+        reg.generated_named(
+            "row",
+            &Tags::default(),
+            name,
+            Box::new(|_| Box::pin(async { Ok(()) })),
+        );
     }
 
     // Bad literal names in `case!` are now a compile error (const

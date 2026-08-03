@@ -140,6 +140,46 @@ impl CaseName {
         })
     }
 
+    /// Build a name from an already-canonical split: `prefix` is
+    /// everything before the final slash (label segments; may be
+    /// empty), `leaf` is the final segment (never contains `/`).
+    /// Validates the full grammar without allocating — both parts are
+    /// typically substrings of shared per-row buffers, so registering
+    /// thousands of generated cases costs no per-case string copies.
+    pub fn from_parts(prefix: Substr, leaf: Substr) -> Result<Self, NameError> {
+        let total = if prefix.is_empty() {
+            leaf.len()
+        } else {
+            prefix.len() + 1 + leaf.len()
+        };
+        if total > MAX_NAME_LEN {
+            return Err(NameError::TooLong(total));
+        }
+        for seg in (!prefix.is_empty())
+            .then(|| prefix.split('/'))
+            .into_iter()
+            .flatten()
+        {
+            validate_segment(seg)?;
+            if let Some(reason) = is_wit_label(seg) {
+                return Err(NameError::NonLabelPrefix {
+                    segment: seg.to_string(),
+                    reason,
+                });
+            }
+        }
+        if leaf.contains('/') {
+            // A slashed leaf would break the canonical-representation
+            // invariant (slashes live only in the prefix).
+            return Err(NameError::BadChar {
+                segment: leaf.to_string(),
+                ch: '/',
+            });
+        }
+        validate_segment(&leaf)?;
+        Ok(CaseName { prefix, leaf })
+    }
+
     /// Build a generated-case name from a row's static prefix (label
     /// segments only) and the case's relative name. Single-segment
     /// relative names attach without any string assembly; multi-segment
@@ -374,6 +414,28 @@ mod tests {
         assert!(CaseName::prefixed(arcstr::literal!("a"), arcstr::literal!("B")).is_err());
         assert!(CaseName::prefixed(arcstr::literal!("a"), arcstr::literal!("375/leaf")).is_err());
         assert!(CaseName::prefixed(arcstr::literal!("a"), arcstr::literal!("x_y")).is_ok());
+    }
+
+    #[test]
+    fn from_parts_matches_parsed() {
+        let full = ArcStr::from("aes-gcm/wycheproof/tc305/whole");
+        let i = full.rfind('/').unwrap();
+        let split = CaseName::from_parts(full.substr(..i), full.substr(i + 1..)).unwrap();
+        let parsed = CaseName::parse("aes-gcm/wycheproof/tc305/whole").unwrap();
+        assert_eq!(parsed, split);
+        assert_eq!(split.as_str(), "aes-gcm/wycheproof/tc305/whole");
+        // empty prefix = bare leaf
+        let solo = CaseName::from_parts(Substr::new(), ArcStr::from("solo").substr(..)).unwrap();
+        assert_eq!(solo, CaseName::parse("solo").unwrap());
+        // invariants still enforced, allocation-free path or not
+        let bad = |p: &str, l: &str| {
+            CaseName::from_parts(ArcStr::from(p).substr(..), ArcStr::from(l).substr(..))
+        };
+        assert!(bad("375", "x").is_err()); // non-label prefix segment
+        assert!(bad("a", "B").is_err()); // charset
+        assert!(bad("a", "tc1/whole").is_err()); // slashed leaf: not canonical
+        assert!(bad("a", "").is_err());
+        assert!(bad("", "").is_err());
     }
 
     #[test]

@@ -126,9 +126,11 @@ impl std::error::Error for TagsError {}
 
 /// A case's validated mark set: at most one mark per feature name (a
 /// feature marked with both polarities is rejected — see
-/// [`TagsError::Contradiction`]).
+/// [`TagsError::Contradiction`]). Stored refcounted so that sharing a
+/// row's tags across thousands of generated cases is a refcount bump,
+/// not a `Vec` allocation per case.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Tags(Vec<Tag>);
+pub struct Tags(std::sync::Arc<[Tag]>);
 
 impl Tags {
     /// Parse and validate a slice of textual tags.
@@ -152,7 +154,7 @@ impl Tags {
                 }
             }
         }
-        Ok(Tags(tags))
+        Ok(Tags(tags.into()))
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Tag> {
