@@ -10,7 +10,7 @@ use std::path::Path;
 
 use wasmtime::error::{bail, format_err, Context as _};
 use wasmtime::Result;
-use component_test_core::Provenance;
+use component_test_core::{Marks, Provenance};
 use component_test_formats::results::{
     CaseResult, Envelope, Event, RunInfo, Status, SuiteInfo, RESULTS_VERSION, TERMINATOR,
 };
@@ -52,6 +52,7 @@ pub enum OutputMode {
 
 #[derive(Debug, Default)]
 pub struct Summary {
+    pub not_applicable: usize,
     pub passed: usize,
     pub failed: usize,
     pub skipped: usize,
@@ -59,7 +60,7 @@ pub struct Summary {
 
 impl Summary {
     pub fn total(&self) -> usize {
-        self.passed + self.failed + self.skipped
+        self.passed + self.failed + self.skipped + self.not_applicable
     }
 }
 
@@ -75,6 +76,7 @@ pub struct Runner {
     engine: Engine,
     component: Component,
     linker: Linker<Ctx>,
+    wasm_bytes: Vec<u8>,
 }
 
 impl Runner {
@@ -84,7 +86,9 @@ impl Runner {
         config.wasm_component_model_async(true);
         let engine = Engine::new(&config)?;
 
-        let component = Component::from_file(&engine, suite_path)
+        let wasm_bytes = std::fs::read(suite_path)
+            .with_context(|| format!("reading suite component {}", suite_path.display()))?;
+        let component = Component::new(&engine, &wasm_bytes)
             .with_context(|| format!("loading suite component {}", suite_path.display()))?;
 
         let mut linker: Linker<Ctx> = Linker::new(&engine);
@@ -112,6 +116,7 @@ impl Runner {
             engine,
             component,
             linker,
+            wasm_bytes,
         })
     }
 
@@ -175,7 +180,7 @@ impl Runner {
         let diagnostics = std::mem::take(&mut store.data_mut().diagnostics);
 
         let verdict = match call {
-            Err(e) => Verdict::Trap(format!("{e:#}")),
+            Err(e) => Verdict::Trap(trap_detail(&e)),
             Ok(()) => match &results[0] {
                 Val::Result(Ok(_)) => Verdict::Pass,
                 Val::Result(Err(payload)) => match payload.as_deref() {
@@ -201,8 +206,25 @@ impl Runner {
 
     /// Run the whole suite, reporting to stdout in `mode`. Returns the
     /// summary (caller decides the exit code).
-    pub async fn run_suite(&self, suite_name: &str, mode: OutputMode) -> Result<Summary> {
+    pub async fn run_suite(
+        &self,
+        suite_name: &str,
+        mode: OutputMode,
+        missing_features: &[String],
+    ) -> Result<Summary> {
         let human = matches!(mode, OutputMode::Human);
+
+        // Static inventory (marks) from the suite artifact, if present.
+        let inventory: Option<std::collections::BTreeMap<String, Marks>> =
+            match component_test_formats::inventory::inventory(&self.wasm_bytes) {
+                Ok(entries) => Some(
+                    entries
+                        .into_iter()
+                        .map(|e| (e.name.as_str().to_string(), Marks(e.marks)))
+                        .collect(),
+                ),
+                Err(_) => None,
+            };
 
         if !human {
             let envelope = Envelope {
@@ -220,7 +242,53 @@ impl Runner {
         let names = self.enumerate().await.context("enumerating suite")?;
         let mut summary = Summary::default();
 
+        // Runtime cross-check: the static inventory and `all()` must
+        // agree (drift = harness bug).
+        if let Some(inv) = &inventory {
+            let enumerated: std::collections::BTreeSet<&str> =
+                names.iter().map(|s| s.as_str()).collect();
+            let recorded: std::collections::BTreeSet<&str> =
+                inv.keys().map(|s| s.as_str()).collect();
+            if enumerated != recorded {
+                bail!(
+                    "inventory drift: marks section and all() disagree \
+                     (section-only: {:?}; all()-only: {:?})",
+                    recorded.difference(&enumerated).collect::<Vec<_>>(),
+                    enumerated.difference(&recorded).collect::<Vec<_>>(),
+                );
+            }
+        }
+
         for (index, enumerated_name) in names.iter().enumerate() {
+            // Scheduler: skip cases that do not apply to this target.
+            if let Some(inv) = &inventory {
+                if let Some(marks) = inv.get(enumerated_name) {
+                    if !marks.applies(missing_features) {
+                        let mark = marks
+                            .excluding_mark(missing_features)
+                            .map(|m| m.to_string())
+                            .unwrap_or_default();
+                        summary.not_applicable += 1;
+                        if human {
+                            println!("test {enumerated_name}: N/A ({mark})");
+                        } else {
+                            let event = Event::Case(CaseResult {
+                                case: enumerated_name.clone(),
+                                status: Status::NotApplicable,
+                                provenance: None,
+                                detail: Some(mark),
+                                seed: None,
+                                duration_ms: None,
+                                diagnostics: vec![],
+                                diagnostics_complete: true,
+                            });
+                            println!("{}", serde_json::to_string(&event)?);
+                        }
+                        continue;
+                    }
+                }
+            }
+
             if human {
                 println!("test {enumerated_name} ...");
             }
@@ -274,10 +342,11 @@ impl Runner {
 
         if human {
             println!(
-                "\nresult: {} passed, {} failed, {} skipped, {} total",
+                "\nresult: {} passed, {} failed, {} skipped, {} not applicable, {} total",
                 summary.passed,
                 summary.failed,
                 summary.skipped,
+                summary.not_applicable,
                 summary.total()
             );
         } else {
@@ -286,6 +355,17 @@ impl Runner {
 
         Ok(summary)
     }
+}
+
+/// Reduce a wasmtime error chain to a one-line trap detail.
+fn trap_detail(e: &wasmtime::Error) -> String {
+    let full = format!("{e:#}");
+    // Prefer the root "wasm trap: ..." message; otherwise first line.
+    full.lines()
+        .rev()
+        .find_map(|l| l.split("wasm trap: ").nth(1))
+        .map(|m| format!("wasm trap: {m}"))
+        .unwrap_or_else(|| full.lines().next().unwrap_or("trap").to_string())
 }
 
 /// The suite's `tests` export surface, looked up dynamically.

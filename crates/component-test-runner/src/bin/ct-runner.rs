@@ -1,4 +1,5 @@
-//! Thin CLI over the runner library: `ct-runner <suite.wasm> [--jsonl]`.
+//! Thin CLI over the runner library:
+//! `ct-runner <suite.wasm> [--jsonl] [--missing f1,f2,...]`.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -19,8 +20,14 @@ fn main() -> ExitCode {
 fn run() -> Result<ExitCode> {
     let mut suite: Option<PathBuf> = None;
     let mut mode = OutputMode::Human;
-    for arg in std::env::args().skip(1) {
+    let mut missing: Vec<String> = Vec::new();
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--missing" => {
+                let list = args.next().ok_or_else(|| anyhow::anyhow!("--missing needs a list"))?;
+                missing.extend(list.split(',').filter(|s| !s.is_empty()).map(String::from));
+            }
             "--jsonl" => mode = OutputMode::Jsonl,
             _ if suite.is_none() => suite = Some(PathBuf::from(arg)),
             _ => bail!("unexpected argument `{arg}`\nusage: ct-runner <suite.wasm> [--jsonl]"),
@@ -36,7 +43,7 @@ fn run() -> Result<ExitCode> {
 
     let runner = Runner::new(&suite)?;
     let summary =
-        wasmtime_wasi::runtime::in_tokio(runner.run_suite(&suite_name, mode))?;
+        wasmtime_wasi::runtime::in_tokio(runner.run_suite(&suite_name, mode, &missing))?;
 
     Ok(if summary.failed > 0 {
         ExitCode::FAILURE

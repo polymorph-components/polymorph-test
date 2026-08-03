@@ -6,6 +6,7 @@ members = [
     "crates/component-test-sdk",
     "crates/component-test-cli",
     "crates/component-test-runner",
+    "fixtures/fixture-suite",
     "prototype/provider",
     "prototype/suite",
     "prototype/runner",
