@@ -95,10 +95,7 @@ impl Lockfile {
                     .join(", ")
             );
         }
-        Ok(positive
-            .union(&negative)
-            .map(|s| s.to_string())
-            .collect())
+        Ok(positive.union(&negative).map(|s| s.to_string()).collect())
     }
 
     /// Compare a result set's case names against the inventory:
@@ -194,7 +191,6 @@ mod tests {
 
     #[test]
     fn marks_applicability_integration() {
-        
         let e = entry("a/hsm-case", &["hsm", "!sim"]);
         let marks = component_test_core::Marks(e.marks.clone());
         assert!(marks.applies(&["sim"]));

@@ -25,7 +25,9 @@ fn run() -> Result<ExitCode> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--missing" => {
-                let list = args.next().ok_or_else(|| anyhow::anyhow!("--missing needs a list"))?;
+                let list = args
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--missing needs a list"))?;
                 missing.extend(list.split(',').filter(|s| !s.is_empty()).map(String::from));
             }
             "--jsonl" => mode = OutputMode::Jsonl,
@@ -42,8 +44,7 @@ fn run() -> Result<ExitCode> {
         .unwrap_or_else(|| "suite".into());
 
     let runner = Runner::new(&suite)?;
-    let summary =
-        wasmtime_wasi::runtime::in_tokio(runner.run_suite(&suite_name, mode, &missing))?;
+    let summary = wasmtime_wasi::runtime::in_tokio(runner.run_suite(&suite_name, mode, &missing))?;
 
     Ok(if summary.failed > 0 {
         ExitCode::FAILURE

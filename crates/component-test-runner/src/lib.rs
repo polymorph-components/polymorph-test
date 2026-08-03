@@ -8,13 +8,13 @@
 
 use std::path::Path;
 
-use wasmtime::error::{bail, format_err, Context as _};
-use wasmtime::Result;
 use component_test_core::{Marks, Provenance};
 use component_test_formats::results::{
     CaseResult, Envelope, Event, RunInfo, Status, SuiteInfo, RESULTS_VERSION, TERMINATOR,
 };
 use wasmtime::component::{Component, Func, Instance, Linker, Resource, ResourceType, Val};
+use wasmtime::error::{bail, format_err, Context as _};
+use wasmtime::Result;
 use wasmtime::{Config, Engine, Store};
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
@@ -95,7 +95,11 @@ impl Runner {
         wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
 
         let mut ctx_instance = linker.instance(CONTEXT_INSTANCE)?;
-        ctx_instance.resource("context", ResourceType::host::<HostContext>(), |_, _| Ok(()))?;
+        ctx_instance.resource(
+            "context",
+            ResourceType::host::<HostContext>(),
+            |_, _| Ok(()),
+        )?;
         ctx_instance.func_wrap_concurrent(
             "[method]context.diagnostic",
             |accessor, (_this, msg): (Resource<HostContext>, String)| {
@@ -154,7 +158,11 @@ impl Runner {
 
     /// Run case `index` in its own fresh instance. Returns the name (from
     /// this instance) and what happened.
-    async fn run_case(&self, index: usize, live_print: bool) -> Result<(String, Verdict, Vec<String>)> {
+    async fn run_case(
+        &self,
+        index: usize,
+        live_print: bool,
+    ) -> Result<(String, Verdict, Vec<String>)> {
         let mut store = self.new_store(live_print)?;
         let instance = self.instantiate(&mut store).await?;
         let funcs = TestsFuncs::new(&mut store, &instance)?;
@@ -312,9 +320,7 @@ impl Runner {
             } else {
                 let (status, provenance, detail, complete) = match &verdict {
                     Verdict::Pass => (Status::Pass, Provenance::Returned, None, true),
-                    Verdict::Fail(d) => {
-                        (Status::Fail, Provenance::Returned, Some(d.clone()), true)
-                    }
+                    Verdict::Fail(d) => (Status::Fail, Provenance::Returned, Some(d.clone()), true),
                     Verdict::Skip(d) => {
                         (Status::Skipped, Provenance::Returned, Some(d.clone()), true)
                     }

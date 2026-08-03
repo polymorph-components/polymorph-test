@@ -22,7 +22,9 @@ fn main() -> anyhow::Result<()> {
         Some("lock") => lock(&args[1..]),
         Some("fold") => fold(&args[1..]),
         _ => {
-            eprintln!("usage: component-test lock <suite.wasm> [-o tests.lock] [--check tests.lock]");
+            eprintln!(
+                "usage: component-test lock <suite.wasm> [-o tests.lock] [--check tests.lock]"
+            );
             eprintln!("       component-test fold [tests.lock] < results.jsonl");
             std::process::exit(2);
         }
@@ -148,7 +150,10 @@ fn fold(args: &[String]) -> anyhow::Result<()> {
             .collect::<Vec<_>>()
             .join(", ")
     );
-    let failed = doc.results.iter().any(|r| r.status == results::Status::Fail)
+    let failed = doc
+        .results
+        .iter()
+        .any(|r| r.status == results::Status::Fail)
         || !doc.run_errors.is_empty()
         || !doc.terminated;
     std::process::exit(if failed { 1 } else { 0 });

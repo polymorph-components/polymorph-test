@@ -74,7 +74,11 @@ pub struct CaseResult {
     /// Replay token (executed cases, when randomness is virtualized).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seed: Option<String>,
-    #[serde(default, rename = "duration-ms", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "duration-ms",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub duration_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<String>,
@@ -147,10 +151,9 @@ pub fn to_jsonl(envelope: &Envelope, events: &[Event]) -> anyhow::Result<String>
 /// lockfile-ordered selected names.
 pub fn fold_jsonl<S: AsRef<str>>(stream: &str, selected: &[S]) -> anyhow::Result<Document> {
     let mut lines = stream.lines().filter(|l| !l.trim().is_empty());
-    let envelope: Envelope = serde_json::from_str(
-        lines.next().context("empty stream: missing envelope")?,
-    )
-    .context("parsing envelope")?;
+    let envelope: Envelope =
+        serde_json::from_str(lines.next().context("empty stream: missing envelope")?)
+            .context("parsing envelope")?;
 
     if selected.is_empty() {
         anyhow::bail!("empty selection is a run error");
@@ -214,7 +217,7 @@ pub fn fold_jsonl<S: AsRef<str>>(stream: &str, selected: &[S]) -> anyhow::Result
             .map(|r| r.case.clone());
         for name in selected {
             let name = name.as_ref();
-            if !reported.contains(&name.to_string()) {
+            if !reported.contains(name) {
                 results.push(CaseResult {
                     case: name.to_string(),
                     status: Status::NotReached,
@@ -318,7 +321,10 @@ mod tests {
         jsonl.push('\n');
         jsonl.push_str(TERMINATOR);
         let doc = fold_jsonl(&jsonl, &["a/x", "a/y"]).unwrap();
-        assert_eq!(doc.unknown_statuses.get("a/x").unwrap(), "abandoned-by-co-tenant");
+        assert_eq!(
+            doc.unknown_statuses.get("a/x").unwrap(),
+            "abandoned-by-co-tenant"
+        );
         assert_eq!(doc.results.len(), 1);
     }
 

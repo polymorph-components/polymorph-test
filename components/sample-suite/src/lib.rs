@@ -96,7 +96,11 @@ impl Guest for Suite {
     type TestCase = Case;
 
     async fn all() -> Vec<TestCase> {
-        with_registry(|reg| (0..reg.len()).map(|index| TestCase::new(Case { index })).collect())
+        with_registry(|reg| {
+            (0..reg.len())
+                .map(|index| TestCase::new(Case { index }))
+                .collect()
+        })
     }
 }
 

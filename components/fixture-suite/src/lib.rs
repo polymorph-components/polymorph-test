@@ -29,7 +29,8 @@ async fn boom(ctx: &Context) -> Verdict {
 }
 
 async fn after(ctx: &Context) -> Verdict {
-    ctx.diagnostic("still alive in a fresh instance".into()).await;
+    ctx.diagnostic("still alive in a fresh instance".into())
+        .await;
     Ok(())
 }
 

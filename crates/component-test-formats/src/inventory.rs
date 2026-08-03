@@ -41,8 +41,7 @@ pub fn parse_marks_records(bytes: &[u8]) -> anyhow::Result<Vec<CaseEntry>> {
         }
         let marks = parts
             .map(|m| {
-                Mark::parse(m)
-                    .map_err(|e| anyhow::anyhow!("invalid mark `{m}` on `{name}`: {e}"))
+                Mark::parse(m).map_err(|e| anyhow::anyhow!("invalid mark `{m}` on `{name}`: {e}"))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
         entries.push(CaseEntry { name, marks });

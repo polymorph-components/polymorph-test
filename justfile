@@ -11,6 +11,18 @@ _default:
 # Everything: host tests, component builds, all four verification paths.
 all: test build lock-check verify-embed verify-compose verify-node verify-pipeline
 
+# CI's native job: formatting, clippy, host tests, WIT validation.
+host-checks: fmt-check lint test wit-check
+
+fmt-check:
+    cargo fmt --all --check
+
+lint:
+    cargo clippy --workspace \
+        --exclude sample-suite --exclude provider \
+        --exclude runner-cli --exclude fixture-suite \
+        --all-targets -- -D warnings
+
 # Host-crate tests (fast; excludes wasm-only component crates).
 test:
     cargo test --workspace \

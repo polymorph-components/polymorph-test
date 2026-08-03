@@ -16,8 +16,7 @@ pub use component_test_core::{
 
 /// Boxed case body: borrows the (bindings-generated) context for the
 /// duration of the run.
-pub type CaseFn<Ctx> =
-    Box<dyn for<'a> Fn(&'a Ctx) -> Pin<Box<dyn Future<Output = Verdict> + 'a>>>;
+pub type CaseFn<Ctx> = Box<dyn for<'a> Fn(&'a Ctx) -> Pin<Box<dyn Future<Output = Verdict> + 'a>>>;
 
 /// One registered case.
 pub struct Case<Ctx> {
@@ -54,17 +53,15 @@ impl<Ctx> Registry<Ctx> {
     where
         F: for<'a> Fn(&'a Ctx) -> Pin<Box<dyn Future<Output = Verdict> + 'a>> + 'static,
     {
-        let name = CaseName::parse(name)
-            .unwrap_or_else(|e| panic!("invalid case name `{name}`: {e}"));
+        let name =
+            CaseName::parse(name).unwrap_or_else(|e| panic!("invalid case name `{name}`: {e}"));
         if !self.names.insert(name.as_str().to_string()) {
             panic!("duplicate case name `{name}` (check post-normalization collisions)");
         }
         let marks = Marks(
             marks
                 .iter()
-                .map(|m| {
-                    Mark::parse(m).unwrap_or_else(|e| panic!("invalid mark `{m}`: {e}"))
-                })
+                .map(|m| Mark::parse(m).unwrap_or_else(|e| panic!("invalid mark `{m}`: {e}")))
                 .collect(),
         );
         self.cases.push(Case {

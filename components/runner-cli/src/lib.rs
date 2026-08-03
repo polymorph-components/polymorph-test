@@ -71,11 +71,7 @@ enum CaseVerdict {
 /// Run one case, returning the verdict and its diagnostics (already
 /// written through in human mode; collected for the event in JSONL
 /// mode).
-async fn run_case(
-    case: &TestCase,
-    out: &mut Out,
-    human: bool,
-) -> (CaseVerdict, Vec<String>) {
+async fn run_case(case: &TestCase, out: &mut Out, human: bool) -> (CaseVerdict, Vec<String>) {
     let (ctx, observer) = new_context();
     // In-flight read state lives in the stream object, not the `next()`
     // future: dropping a pending `next()` (as `select!` does every
@@ -178,12 +174,8 @@ impl RunGuest for Runner {
             if human {
                 match &verdict {
                     CaseVerdict::Pass => out.line(&format!("test {name}: PASS")).await,
-                    CaseVerdict::Fail(d) => {
-                        out.line(&format!("test {name}: FAIL: {d}")).await
-                    }
-                    CaseVerdict::Skip(d) => {
-                        out.line(&format!("test {name}: SKIP: {d}")).await
-                    }
+                    CaseVerdict::Fail(d) => out.line(&format!("test {name}: FAIL: {d}")).await,
+                    CaseVerdict::Skip(d) => out.line(&format!("test {name}: SKIP: {d}")).await,
                 }
             } else {
                 out.line(&case_event(&name, &verdict, &diags)).await;

@@ -30,8 +30,14 @@ pub enum NameError {
     EmptySegment,
     SegmentTooLong(String),
     DotSegment(String),
-    BadChar { segment: String, ch: char },
-    NonLabelPrefix { segment: String, reason: &'static str },
+    BadChar {
+        segment: String,
+        ch: char,
+    },
+    NonLabelPrefix {
+        segment: String,
+        reason: &'static str,
+    },
 }
 
 impl fmt::Display for NameError {

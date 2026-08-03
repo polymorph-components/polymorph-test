@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Native checks: formatting, clippy, host-crate tests, WIT validation.
+  # No wasm execution; needs wasm-tools only (wit-check).
+  host-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        # Pinned by rust-toolchain.toml (channel, wasm target, rustfmt,
+        # clippy); `rustup show` installs exactly those.
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: host-checks
+          cache-all-crates: true
+
+      - name: Install tools
+        run: ./scripts/setup.sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Host checks
+        run: just host-checks
+
+  # The full verification matrix: component builds, all four execution
+  # paths (host-embed runner, composed wasi:cli runner under wasmtime,
+  # jco runner under Node/JSPI, inventory + results pipeline), lockfile
+  # drift checks.
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: verify
+          cache-all-crates: true
+
+      - name: Install Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install tools
+        run: ./scripts/setup.sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Verification matrix
+        run: just all
