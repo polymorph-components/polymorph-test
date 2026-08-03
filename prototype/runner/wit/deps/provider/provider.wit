@@ -1,0 +1,30 @@
+/// Reference context-provider surface. NOT part of the L1 contract
+/// (`lann:component-test`): this is the private interface between a
+/// context provider and a runner core, and may churn freely.
+package lann:component-test-provider@0.1.0;
+
+/// Creates linked (context, observer) pairs: the context is lent to a
+/// test case; the observer is the runner core's end for watching it.
+interface factory {
+    use lann:component-test/test-context@0.1.0.{context};
+
+    /// The runner core's end of a linked pair.
+    resource observer {
+        /// The paired context's diagnostics, live, in order. Diagnostics
+        /// emitted before this is called are discarded (never called =
+        /// black hole), so take the stream before starting the case. The
+        /// caller must read concurrently with the run: an unread stream
+        /// backpressures the case's `diagnostic` calls. Closes when the
+        /// paired context is dropped. Traps on a second call.
+        diagnostics: func() -> stream<string>;
+    }
+
+    /// A fresh linked pair for one test-case run.
+    new-context: func() -> tuple<context, observer>;
+}
+
+/// The reference provider component.
+world provider {
+    export lann:component-test/test-context@0.1.0;
+    export factory;
+}

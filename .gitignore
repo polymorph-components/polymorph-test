@@ -1,0 +1,3 @@
+prototype/target/
+prototype/*.wasm
+prototype/Cargo.lock

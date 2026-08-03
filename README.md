@@ -7,72 +7,180 @@ makes multi-target test operations tractable — inventory tracking, a
 canonical results format, aggregation, and CI packaging.
 
 Status: proposal. The WIT below is the seed; everything else is tracked in
-the [issues](../../issues).
+the [issues](../../issues). How the pieces layer together is described in
+[ARCHITECTURE.md](ARCHITECTURE.md). A working end-to-end prototype
+(provider, sample suite, wasip3 CLI runner, composition) lives in
+[`prototype/`](prototype/).
 
 ## The contract
 
-[`wit/tests.wit`](wit/tests.wit) defines one interface and two worlds:
+[`wit/tests.wit`](wit/tests.wit) defines two interfaces and two worlds:
 
 ```wit
+interface test-context {
+    resource context {
+        diagnostic: async func(msg: string);
+    }
+}
+
 interface tests {
-    variant outcome { pass, fail(string), skipped(string) }
+    use test-context.{context};
+
+    variant outcome { failed(string), skipped(string) }
 
     resource test-case {
         name: func() -> string;
-        features: func() -> list<string>;
-        run: async func() -> outcome;
+        run: async func(ctx: borrow<context>) -> result<_, outcome>;
     }
 
-    all: func(missing-features: list<string>) -> list<test-case>;
+    all: func() -> list<test-case>;
 }
 
-world suite  { export tests; }
+world suite  { import test-context; export tests; }
 world runner { import tests; }
 ```
 
-A suite exports `tests`; a runner imports it. Composition (e.g.
-`wac plug --plug suite.wasm runner.wasm`) yields an executable artifact —
-the linker is the test harness's registration step.
+A suite exports `tests` and imports `test-context`; a runner imports
+`tests`. Because component instantiation is acyclic, a single component
+cannot both provide `test-context` to the suite and consume the suite's
+`tests`, so composition factors into two steps: **bundle** the suite with a
+context provider (a small `wac` script re-exporting `tests`,
+`test-context`, and `factory` from one shared provider instance), then
+**`wac plug`** the bundle into a runner core. The linker is still the test
+harness's registration step; the suite-facing step just has two nodes
+inside it. Validated end-to-end in [`prototype/`](prototype/).
 
-Design commitments, in decreasing order of load-bearing:
+## Feature marks
 
-- **Cases are self-describing.** Each carries a stable hierarchical name and
-  the feature names it exercises beyond the suite's baseline. Targets
-  declare what they are *missing*; `all(missing-features)` materializes the
-  suite accordingly. New cases run everywhere by default — coverage is shed
-  only by explicit declaration.
-- **Skips are claims, not absences.** `skipped(string)` says what the case
-  asserted instead of exercising its subject (typically: that the missing
-  feature is *declined*, not silently half-served).
-- **`run` never traps.** Expectation mismatches are `fail`; a trap is
-  recorded as that case's failure and the instance treated as poisoned.
-- **Unknown feature names trap.** A misspelled declaration is a harness
-  bug, not a test outcome.
+Capability gating lives *outside* the WIT contract, as static metadata
+carried alongside the suite (custom section and/or lockfile, emitted by the
+guest SDK from the same per-case declaration):
+
+- A case marked `<feature>` applies only to targets that have the feature.
+- A case marked `!<feature>` applies only to targets that *lack* it — these
+  cases assert the feature is properly *declined* (not silently
+  half-served).
+- The applicability predicate: (every positive mark present) ∧ (no negative
+  mark present). Unmarked cases apply everywhere.
+- Targets declare capability manifests (the features they are *missing*),
+  keyed by implementation × environment.
+
+A case that does not apply to a target is reported **`not-applicable`** by
+the scheduler and never executed. `run` is feature-blind: no case ever
+queries feature state.
+
+This scheme is self-checking: a manifest that wrongly claims a feature is
+missing causes the `!feature` decline case to fail against the supporting
+target; a manifest that wrongly claims support causes the `<feature>` cases
+to fail. Manifest errors always surface as red tests.
+
+## Design commitments
+
+In decreasing order of load-bearing:
+
+- **The contract grows only on the runner-export side.** The Component Model
+  has no compatible growth path for anything in return position (no variant
+  or record subtyping), but an exporter may compatibly export *more*. So the
+  `context` resource is the contract's only growth surface: new capabilities
+  (attachments, subtests, timing marks, ...) arrive as new `context`
+  methods, and old suites keep linking against newer providers. This is also
+  why `test-context` must ship in 0.1.0: a suite world's imports cannot be
+  optional, so a growth surface added later would be the semver-major event
+  it exists to avoid.
+- **Enumeration is unconditional and deterministic.** `all()` takes no
+  arguments and yields every case, in suite order, identically on every
+  call and instance; names are stable. Lockfiles pin case names *and*
+  feature marks (mark drift is coverage drift).
+- **The returned `result` is the sole verdict.** `ok` is a pass; `ctx` is a
+  sideband that never alters the verdict. This keeps the run protocol free
+  of split-brain rules and maps onto every guest's native idiom:
+  `Result<(), Outcome>` and `?` in Rust, thrown exceptions in JS and
+  Python — the same shape pytest (`Failed`/`Skipped` raisables) and
+  libtest-mimic (`Result<(), Failed>`) converged on.
+- **Feature marks are metadata; `run` is feature-blind.** Gating is a set
+  operation over static marks and the target manifest, computable by any
+  layer without executing anything. Every feature named by a positive mark
+  must be named by at least one negative-marked (decline-asserting) case —
+  enforced as a lockfile lint, so declining coverage is structural, not
+  aspirational.
+- **`skipped` is a claim, and exceptional.** A case returns
+  `skipped(string)` only when a run-stable target fact turns out not to
+  hold at run time (e.g. a declared hardware token is unavailable); the
+  payload says what the case asserted instead. Gating knowable before the
+  run belongs in marks. (Kept as an escape hatch with eyes open: the
+  webcrypto conformance system needed zero runtime skips across ~8k
+  self-contained cases, but platform-stored state — e.g. HSM-backed keys —
+  breaks self-containment.)
+- **State is not a feature.** Marks name facts a case cannot change.
+  Cases needing platform state should provision–use–destroy within the
+  case; a suite whose cases mutate facts other cases are gated on is
+  broken regardless of the features model.
+- **Structural features gate suites, not cases.** A feature that is a
+  *world import* makes a suite uninstantiable on targets lacking it;
+  neither the positive nor the decline case can run. Such features are
+  consumed at the composition/workflow layers (per-world suite split,
+  applicability derived from imports ∩ manifest, the structural claim
+  policed by a composition-time gate), never expressed as case marks.
+- **`run` never traps.** Expectation mismatches are `failed`; a trap is
+  recorded as that case's failure and the instance treated as poisoned
+  (mandatorily — a trapped instance is permanently unusable). A
+  runner-imposed timeout is treated as a trap: cancellation is cooperative
+  in the Component Model, so a hung case can only be abandoned with its
+  instance. Runners recover by re-instantiating and resuming by case name.
 - **The outcome variant is closed.** Variant cases in return position have
   no compatible growth path, so `outcome` is designed never to need one:
-  three cases, details ride the string payloads. Metadata (timing,
-  diagnostics) arrives as additive interfaces, never as outcome cases.
+  pass/fail/skip is the trichotomy every test framework has kept stable for
+  decades, details ride the string payloads, and everything else grows on
+  the `context` side.
 - **Expected failure is not on the guest surface.** Capability gaps are
   target facts (a manifest); known-not-yet-passing cases are runner-side
-  ratchets. Bugs get fixed, not declared.
+  ratchets — and ratchets are two-sided: a listed loss no longer observed
+  is also an error. Bugs get fixed, not declared.
+
+Result-status vocabulary (for the future canonical results schema): an
+executed case yields `pass | fail | skipped`; the scheduler adds
+`not-applicable` (target facts, with the responsible mark as detail).
+`deselected` is reserved for user-driven subset selection, distinct from
+both.
+
+Sequencing: runners run cases sequentially per suite instance. Concurrent
+`run` calls are safe at the ABI level (a sync-lifted suite serializes on its
+instance lock) but not isolated — cases share the instance — so 0.1.0
+promises suites sequential execution. This is the loosest promise that can
+later be relaxed.
+
+To verify early (tracked in issues): the growth story assumes composition
+tooling resolves a `test-context@0.1.x` import against a newer
+semver-compatible export (wac/wasmtime semver-aware linking); and feature
+marks in custom sections must survive componentization and composition
+tooling. Test both before anything leans on them.
 
 ## Provenance
 
 Synthesized from two sources:
 
 - [`lann/wasi-test`](https://github.com/lann/wasi-test) — the composition
-  model: suite exports, runner imports, `wac plug` links them.
-- [`lann/webcrypto`](https://github.com/lann/webcrypto)'s conformance
-  system — the operational model, hardened at ~8000-case scale:
+  model: suite exports, runner imports, the linker registers.
+- [`lann/component-webcrypto`](https://github.com/lann/component-webcrypto)'s
+  conformance system — the operational model, hardened at ~8000-case scale:
   self-describing inventories, capability manifests, lockfiles, one results
-  wire format, many adapters, one aggregator.
+  wire format, many adapters, one aggregator. The feature-mark scheme is a
+  restructuring of its declared-missing-features + decline-assertion
+  design, with the decline branch factored out into paired `!feature`
+  cases.
 
 ## Scope (tracked in issues)
 
-- Guest SDKs: Rust (`suite!` macro) and JS (componentize-js).
+- Guest SDKs: Rust (`suite!` macro) and JS (componentize-js) — including
+  single-declaration emission of feature marks (static metadata + paired
+  decline cases).
+- The reference `test-context` provider component.
 - Runners: `wasi:cli`, `wasi:http` (served UI + remote API), in-browser via
   jco, native embedding with a libtest-mimic frontend.
-- Inventory lockfiles and the update workflow.
+- Semver-compatible-linking verification for the `test-context` growth path;
+  custom-section survival through composition tooling.
+- Inventory lockfiles (names + marks) and the update workflow, including
+  the decline-pair lint.
 - Canonical results JSON, aggregator/validator, markdown matrix, static
   viewer.
 - Interop emitters: JUnit XML, TAP, GitHub Actions annotations.
