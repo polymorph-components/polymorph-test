@@ -58,12 +58,10 @@ mod fixture {
     #[case_generator(prefix = "gen")]
     fn generated_cases() -> impl Iterator<Item = Case<TestContext>> {
         (1u32..=2).map(|n| {
-            Case::new(format!("tc{n}"), move |ctx: &TestContext| {
-                Box::pin(async move {
-                    ctx.diagnostic(format!("generated case {n}")).await;
-                    check_eq!(n * 2, n + n, "doubling");
-                    Ok(())
-                })
+            gen_case!(format!("tc{n}"), |ctx| async move {
+                ctx.diag(format!("generated case {n}")).await;
+                check_eq!(n * 2, n + n, "doubling");
+                Ok(())
             })
         })
     }

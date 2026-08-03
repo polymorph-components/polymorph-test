@@ -1,4 +1,11 @@
-//! Guest SDK core for `lann:component-test` suites.
+//! Guest SDK for `lann:component-test` suites.
+//!
+//! **Start with [`suite`]** (the `#[component_test_sdk::suite]`
+//! attribute): it owns names, tags, inventory, and all glue. The
+//! [`Registry`]/[`case!`] layer underneath is plumbing for the macro
+//! and for unusual producers; raw [`Registry::case`] registration
+//! bypasses the static inventory and will trip the runner's drift
+//! cross-check.
 //!
 //! Deliberately independent of wit-bindgen: the suite crate owns its
 //! generated bindings (and their `Context` type); this crate provides
@@ -20,7 +27,7 @@ pub use component_test_sdk_macro::suite;
 /// `#[suite]`-generated bindings (re-exported at the suite module
 /// root), not from here.
 pub mod prelude {
-    pub use crate::{check, check_eq, failed, skipped, GeneratedCase as Case, Verdict};
+    pub use crate::{check, check_eq, failed, gen_case, skipped, GeneratedCase as Case, Verdict};
 }
 
 /// Boxed case body: borrows the (bindings-generated) context for the
@@ -89,7 +96,7 @@ impl<Ctx> Registry<Ctx> {
         }
         let tags = Tags::new(
             tags.iter()
-                .map(|m| Tag::parse(m).unwrap_or_else(|e| panic!("invalid mark `{m}`: {e}")))
+                .map(|m| Tag::parse(m).unwrap_or_else(|e| panic!("invalid tag `{m}`: {e}")))
                 .collect(),
         )
         .unwrap_or_else(|e| panic!("invalid tags on `{name}`: {e}"));
@@ -141,7 +148,7 @@ impl<Ctx> Registry<Ctx> {
 }
 
 /// Register an `async fn(&Context) -> Verdict` as a case:
-/// `case!(registry, "group/name", ["mark", "!other"], my_async_fn);`
+/// `case!(registry, "group/name", ["tag", "!other"], my_async_fn);`
 ///
 /// Also emits the case's inventory record (name + tags) into the
 /// `component-test:tags@0.1` custom section, enabling execution-free
@@ -179,11 +186,30 @@ pub const fn str_to_array<const N: usize>(s: &str) -> [u8; N] {
     out
 }
 
+/// Sugar for [`GeneratedCase`] bodies inside `#[case_generator]` fns:
+/// `gen_case!(format!("tc{n}"), |ctx| async move { ... })`. Removes the
+/// `Box::pin` and the `&TestContext` annotation (the `TestContext` name
+/// is resolved at the call site, where `#[suite]` injects it).
+#[macro_export]
+macro_rules! gen_case {
+    ($name:expr, |$ctx:ident| $body:expr) => {
+        $crate::GeneratedCase::new($name, move |$ctx: &TestContext| {
+            ::std::boxed::Box::pin($body)
+        })
+    };
+}
+
 /// Verdict ergonomics.
 pub fn failed(detail: impl Into<String>) -> Verdict {
     Err(Failure::Failed(detail.into()))
 }
 
+/// Runtime skip — **exceptional, not the normal conditional-skip
+/// tool**: gating knowable before the run belongs in feature tags
+/// (`#[case(tags("hsm"))]`), which skip without executing. Return
+/// `skipped` only when a run-stable target fact turns out not to hold
+/// at run time (e.g. a declared hardware token is unavailable), and
+/// say in the claim what the case asserted instead.
 pub fn skipped(claim: impl Into<String>) -> Verdict {
     Err(Failure::Skipped(claim.into()))
 }
@@ -209,6 +235,9 @@ macro_rules! check_eq {
 }
 
 /// Assert a condition, failing the case with the given one-line detail.
+/// Expands to an early `return`, so it may only be used directly inside
+/// a function returning [`Verdict`] (not in helpers with other return
+/// types).
 #[macro_export]
 macro_rules! check {
     ($cond:expr, $($detail:tt)+) => {{

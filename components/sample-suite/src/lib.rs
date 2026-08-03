@@ -7,18 +7,18 @@ mod sample {
     mod math {
         #[case]
         async fn add(ctx: &TestContext) -> Verdict {
-            ctx.diagnostic("computing 2 + 2".into()).await;
+            ctx.diag("computing 2 + 2").await;
             let got = 2 + 2;
-            ctx.diagnostic(format!("got {got}")).await;
+            ctx.diag(format!("got {got}")).await;
             check_eq!(got, 4, "2 + 2");
             Ok(())
         }
 
         #[case]
         async fn mul(ctx: &TestContext) -> Verdict {
-            ctx.diagnostic("computing 6 * 9".into()).await;
+            ctx.diag("computing 6 * 9").await;
             let got = 6 * 9;
-            ctx.diagnostic(format!("got {got}, expecting the ultimate answer"))
+            ctx.diag(format!("got {got}, expecting the ultimate answer"))
                 .await;
             check!(got == 42, "6 * 9: expected 42, got {got}");
             Ok(())
@@ -32,13 +32,12 @@ mod sample {
         /// claim.
         #[case]
         async fn attest(ctx: &TestContext) -> Verdict {
-            ctx.diagnostic("probing for hardware token".into()).await;
+            ctx.diag("probing for hardware token").await;
             let token_present = false; // simulated: token unplugged
             if token_present {
                 unreachable!("would attest here");
             }
-            ctx.diagnostic("token unavailable; asserting clean error".into())
-                .await;
+            ctx.diag("token unavailable; asserting clean error").await;
             skipped(
                 "token unavailable at run time; asserted attestation fails cleanly \
                  (no hang, no partial attestation)",

@@ -22,6 +22,18 @@ pub enum Failure {
     Skipped(String),
 }
 
+/// `?`-operator support: any real error becomes a one-line `failed`.
+/// (Blanket over `Error`, not `Display`: `Failure` is itself `Display`,
+/// which would collide with the reflexive `From`. No `From<String>`
+/// either — coherence forbids it alongside the blanket; use
+/// [`failed`](https://docs.rs/component-test-sdk) for string
+/// early-exits.) Skips are never produced via `?` — only explicitly.
+impl<E: std::error::Error> From<E> for Failure {
+    fn from(e: E) -> Self {
+        Failure::Failed(e.to_string())
+    }
+}
+
 impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

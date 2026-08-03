@@ -31,6 +31,63 @@ const _: () = {
     );
 };
 
+/// Declare a test-suite component from a module tree.
+///
+/// ```ignore
+/// #[component_test_sdk::suite]          // or #[suite(name = "acme-crypto")]
+/// mod sample {
+///     mod math {
+///         #[case]
+///         async fn add(ctx: &TestContext) -> Verdict {   // "sample/math/add"
+///             ctx.diag("computing").await;               // diagnostics sideband
+///             check_eq!(2 + 2, 4, "2 + 2");              // (actual, expected)
+///             Ok(())
+///         }
+///
+///         #[case]                       // sync and ctx-less fns also work
+///         fn quick() -> Verdict { Ok(()) }
+///     }
+///
+///     #[cases(tags("hsm"))]             // tags inherit down the subtree
+///     mod hsm {
+///         #[case]
+///         async fn attest(ctx: &TestContext) -> Verdict { Ok(()) }
+///
+///         #[case(tags("!hsm"))]         // polarity flip overrides inherited "hsm"
+///         async fn declined(ctx: &TestContext) -> Verdict { Ok(()) }
+///     }
+///
+///     #[case_generator(prefix = "gen")] // runtime leaves under a static prefix
+///     fn cases() -> impl Iterator<Item = Case<TestContext>> {
+///         (1..=2).map(|n| gen_case!(format!("tc{n}"), |ctx| async move {
+///             ctx.diag(format!("case {n}")).await;
+///             Ok(())
+///         }))
+///     }
+/// }
+/// ```
+///
+/// Semantics:
+/// - **Names** derive from the module path + fn name (idents mapped
+///   `_` → `-`; override a leaf with `#[case(name = "0x1a2b")]`;
+///   rename the root with `#[suite(name = "...")]`). Non-leaf segments
+///   must be kebab-case; validated at compile time.
+/// - **Tags** (`"feature"` / `"!feature"`) gate cases against target
+///   capability manifests. `#[cases(tags(...))]` on a module applies to
+///   its subtree; per-feature, the nearest declaration wins whole.
+///   Every positively-tagged feature needs a `!feature` decline case
+///   (compile-time lint).
+/// - **Inventory**: every case (and each generator's `prefix/*`) is
+///   recorded in a custom section for execution-free lockfile
+///   generation; `#[cfg]` on cases is therefore rejected.
+/// - **Shared setup/fixtures**: plain items (statics, helpers, `use`)
+///   inside the module are untouched — use `std::sync::LazyLock` for
+///   expensive shared tables.
+/// - The SDK prelude and `TestContext` are auto-imported in every
+///   module of the tree; suite files need no `use` lines.
+/// - The contract WIT is embedded by this macro: the crate needs no
+///   `wit/` directory (SUT imports go in a separate plain
+///   `wit_bindgen::generate!`).
 #[proc_macro_attribute]
 pub fn suite(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut module = parse_macro_input!(item as ItemMod);
@@ -129,6 +186,7 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
         let name = &c.name;
         let tags = &c.tags;
         let path = path_tokens(&c.fn_path);
+        let span = c.span;
         let body = match (c.is_async, c.has_ctx) {
             (true, true) => quote!(::std::boxed::Box::pin(#path(ctx))),
             (true, false) => quote!(::std::boxed::Box::pin(async move {
@@ -141,7 +199,7 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
                 #path()
             })),
         };
-        quote! {
+        quote::quote_spanned! {span=>
             registry.case(#name, &[#(#tags),*], move |ctx| #body);
         }
     });
@@ -191,6 +249,18 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
         #[allow(unused_imports)]
         use ::component_test_sdk::prelude::*;
         pub use __ct_bindings::lann::component_test::test_context::Context as TestContext;
+
+        /// Ergonomic wrapper over the raw binding (`diagnostic` takes
+        /// `String`; this takes anything stringy).
+        pub trait __CtDiagExt {
+            #[allow(async_fn_in_trait)]
+            async fn diag(&self, msg: impl Into<::std::string::String>);
+        }
+        impl __CtDiagExt for TestContext {
+            async fn diag(&self, msg: impl Into<::std::string::String>) {
+                self.diagnostic(msg.into()).await
+            }
+        }
 
         #(#records)*
 
@@ -303,7 +373,7 @@ fn walk_items(
                         0,
                         Item::Verbatim(quote! {
                             #[allow(unused_imports)]
-                            use super::TestContext;
+                            use super::{TestContext, __CtDiagExt};
                             #[allow(unused_imports)]
                             use ::component_test_sdk::prelude::*;
                         }),
@@ -318,10 +388,32 @@ fn walk_items(
                 mod_path.pop();
             }
             Item::Fn(f) => {
+                // S1: a foreign test attribute inside a #[suite] module
+                // is almost certainly a missed rename during porting —
+                // and would otherwise be a SILENTLY dropped case.
+                for attr in &f.attrs {
+                    let last = attr
+                        .path()
+                        .segments
+                        .last()
+                        .map(|s| s.ident.to_string())
+                        .unwrap_or_default();
+                    if matches!(last.as_str(), "test" | "rstest" | "test_case" | "bench") {
+                        return Err(Error::new(
+                            attr.span(),
+                            format!(
+                                "`#[{last}]` inside a #[suite] module registers nothing \
+                                 (the case would be silently dropped): did you mean #[case]?"
+                            ),
+                        ));
+                    }
+                }
                 if f.attrs
                     .iter()
                     .any(|a| a.path().is_ident("case") || a.path().is_ident("case_generator"))
                 {
+                    reject_cfg(&f.attrs, f.span())?;
+                    check_case_fn_shape(f)?;
                     // The generated registry lives at the suite-module
                     // root; collected fns must be reachable from there.
                     f.vis = syn::Visibility::Public(Default::default());
@@ -340,7 +432,7 @@ fn walk_items(
                         fn_path,
                         is_async: f.sig.asyncness.is_some(),
                         has_ctx: !f.sig.inputs.is_empty(),
-                        span: f.span(),
+                        span: f.sig.ident.span(),
                     });
                 } else if let Some(gen_attr) = take_generator_attr(f)? {
                     let mut scope = inherited.clone();
@@ -360,7 +452,7 @@ fn walk_items(
                         prefix,
                         tags: scope.iter().map(|(_, t)| t.clone()).collect(),
                         fn_path,
-                        span: f.span(),
+                        span: f.sig.ident.span(),
                     });
                 }
             }
@@ -560,7 +652,9 @@ fn validate(cases: &[CaseDef], gens: &[GenDef]) -> Result<()> {
             proc_macro2::Span::call_site(),
             format!(
                 "decline-pair lint: feature(s) {} have positively-tagged cases but no \
-                 `!feature` decline-asserting case",
+                 `!feature` decline-asserting case. Add a case tagged with the negated \
+                 feature (e.g. tags(\"!hsm\")) asserting the feature is cleanly refused \
+                 on targets that lack it — see README \"Feature tags\"",
                 unpaired
                     .iter()
                     .map(|f| format!("`{f}`"))
