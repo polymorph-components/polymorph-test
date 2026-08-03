@@ -11,7 +11,7 @@
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
-use quote::{format_ident, quote};
+use quote::quote;
 use syn::{
     parse_macro_input, spanned::Spanned, Error, Expr, ExprLit, Ident, Item, ItemFn, ItemMod, Lit,
     Meta, Result,
@@ -460,7 +460,7 @@ fn validate(cases: &[CaseDef], gens: &[GenDef]) -> Result<()> {
     let mut seen = BTreeSet::new();
     let mut positive: BTreeSet<String> = BTreeSet::new();
     let mut negative: BTreeSet<String> = BTreeSet::new();
-    let mut sort = |tags: &[String], pos: &mut BTreeSet<String>, neg: &mut BTreeSet<String>| {
+    let sort = |tags: &[String], pos: &mut BTreeSet<String>, neg: &mut BTreeSet<String>| {
         for t in tags {
             match t.strip_prefix('!') {
                 Some(f) => neg.insert(f.to_string()),
