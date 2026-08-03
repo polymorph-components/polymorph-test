@@ -21,8 +21,21 @@ pub struct Lockfile {
     pub version: String,
     /// The suite this inventory was generated from.
     pub suite: SuiteRef,
-    /// Every case, in suite order.
+    /// Every statically-known case, in canonical order.
     pub case: Vec<CaseEntry>,
+    /// Generated rows: leaves enumerated at run time under a static
+    /// prefix, sharing the row's tags.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub generated: Vec<GeneratedEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GeneratedEntry {
+    /// Name prefix (every segment a WIT label); cases live at
+    /// `prefix/<leaf...>`.
+    pub prefix: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<Tag>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -43,10 +56,19 @@ pub struct CaseEntry {
 
 impl Lockfile {
     pub fn new(suite: SuiteRef, cases: Vec<CaseEntry>) -> Self {
+        Self::with_generated(suite, cases, Vec::new())
+    }
+
+    pub fn with_generated(
+        suite: SuiteRef,
+        cases: Vec<CaseEntry>,
+        generated: Vec<GeneratedEntry>,
+    ) -> Self {
         Lockfile {
             version: LOCKFILE_VERSION.to_string(),
             suite,
             case: cases,
+            generated,
         }
     }
 
@@ -85,6 +107,21 @@ impl Lockfile {
                 }
             }
         }
+        let mut prefixes = BTreeSet::new();
+        for gen in &self.generated {
+            if !prefixes.insert(gen.prefix.as_str()) {
+                bail!("duplicate generated prefix `{}`", gen.prefix);
+            }
+            component_test_core::Tags::new(gen.tags.clone())
+                .map_err(|e| anyhow::anyhow!("generated `{}`: {e}", gen.prefix))?;
+            for tag in &gen.tags {
+                if tag.is_negative() {
+                    negative.insert(tag.feature());
+                } else {
+                    positive.insert(tag.feature());
+                }
+            }
+        }
         let unpaired: Vec<&&str> = positive.difference(&negative).collect();
         if !unpaired.is_empty() {
             bail!(
@@ -100,20 +137,28 @@ impl Lockfile {
         Ok(positive.union(&negative).map(|s| s.to_string()).collect())
     }
 
-    /// Compare a result set's case names against the inventory:
-    /// executed-or-excluded coverage must exactly match.
+    /// Compare a result set's case names against the inventory: every
+    /// exact case must be reported exactly once; other reports must
+    /// fall under a generated prefix (and at most once).
     pub fn check_coverage<'a>(
         &self,
         reported: impl IntoIterator<Item = &'a str>,
     ) -> anyhow::Result<()> {
         let inventory: BTreeSet<&str> = self.case.iter().map(|c| c.name.as_str()).collect();
         let mut remaining = inventory.clone();
+        let mut seen_generated = BTreeSet::new();
         let mut extra = BTreeMap::new();
         for name in reported {
-            if !inventory.contains(name) {
+            if inventory.contains(name) {
+                if !remaining.remove(name) {
+                    bail!("case `{name}` reported more than once");
+                }
+            } else if self.prefix_of(name).is_some() {
+                if !seen_generated.insert(name.to_string()) {
+                    bail!("case `{name}` reported more than once");
+                }
+            } else {
                 extra.insert(name.to_string(), ());
-            } else if !remaining.remove(name) {
-                bail!("case `{name}` reported more than once");
             }
         }
         if !extra.is_empty() {
@@ -129,6 +174,18 @@ impl Lockfile {
             );
         }
         Ok(())
+    }
+
+    /// The generated entry covering `name`, if any (longest prefix
+    /// wins).
+    pub fn prefix_of(&self, name: &str) -> Option<&GeneratedEntry> {
+        self.generated
+            .iter()
+            .filter(|g| {
+                name.strip_prefix(&g.prefix)
+                    .is_some_and(|rest| rest.starts_with('/'))
+            })
+            .max_by_key(|g| g.prefix.len())
     }
 }
 
@@ -190,6 +247,42 @@ mod tests {
         ]);
         let err = lf.validate().unwrap_err().to_string();
         assert!(err.contains("contradictory"), "{err}");
+    }
+
+    #[test]
+    fn generated_entries() {
+        let mut lf = lockfile(vec![entry("a/pos", &["hsm"]), entry("a/neg", &["!hsm"])]);
+        lf.generated.push(GeneratedEntry {
+            prefix: "aes-gcm/wycheproof".into(),
+            tags: vec![Tag::parse("aes-gcm").unwrap()],
+        });
+        // decline-pair lint applies to generated tags too
+        let err = lf.validate().unwrap_err().to_string();
+        assert!(err.contains("aes-gcm"), "{err}");
+        lf.generated.push(GeneratedEntry {
+            prefix: "aes-gcm/declined".into(),
+            tags: vec![Tag::parse("!aes-gcm").unwrap()],
+        });
+        lf.validate().unwrap();
+        // coverage: generated leaves accepted under the prefix
+        lf.check_coverage([
+            "a/pos",
+            "a/neg",
+            "aes-gcm/wycheproof/tc1",
+            "aes-gcm/wycheproof/tc2/whole",
+        ])
+        .unwrap();
+        assert!(lf
+            .check_coverage(["a/pos", "a/neg", "aes-gcm/wycheproofX/tc1"])
+            .is_err());
+        assert!(lf
+            .check_coverage([
+                "a/pos",
+                "a/neg",
+                "aes-gcm/wycheproof/tc1",
+                "aes-gcm/wycheproof/tc1"
+            ])
+            .is_err());
     }
 
     #[test]

@@ -3,7 +3,7 @@ version = "0.1"
 
 [suite]
 name = "fixture_suite"
-artifact_sha256 = "fac048fc8b137a93c543a05069ae52c477cfa4576e0bb8587eea8046748c6158"
+artifact_sha256 = "bebc91784b44fa06c2fd70ef1d0fda204d1a72da3190ac9d2f60577fec8016ca"
 
 [[case]]
 name = "fixture/hsm/attest"
@@ -21,3 +21,6 @@ name = "fixture/trap/before"
 
 [[case]]
 name = "fixture/trap/boom"
+
+[[generated]]
+prefix = "fixture/gen"

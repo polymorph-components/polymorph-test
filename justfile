@@ -101,6 +101,4 @@ wit-check:
     wasm-tools component wit wit/ > /dev/null
     wasm-tools component wit components/provider/wit > /dev/null
     wasm-tools component wit components/runner-cli/wit > /dev/null
-    wasm-tools component wit components/sample-suite/wit > /dev/null
-    wasm-tools component wit components/fixture-suite/wit > /dev/null
     @echo "all WIT trees valid"

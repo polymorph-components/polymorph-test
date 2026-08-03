@@ -223,21 +223,21 @@ impl Runner {
         let human = matches!(mode, OutputMode::Human);
 
         // Static inventory (tags) from the suite artifact, if present.
-        let inventory: Option<std::collections::BTreeMap<String, Tags>> =
-            match component_test_formats::inventory::inventory(&self.wasm_bytes) {
-                Ok(entries) => Some(
-                    entries
-                        .into_iter()
-                        .map(|e| {
-                            (
-                                e.name.as_str().to_string(),
-                                Tags::new(e.tags).expect("validated by inventory parse"),
-                            )
-                        })
-                        .collect(),
-                ),
-                Err(_) => None,
-            };
+        let inventory = component_test_formats::inventory::inventory(&self.wasm_bytes).ok();
+        let tags_of = |name: &str| -> Option<Tags> {
+            let inv = inventory.as_ref()?;
+            if let Some(e) = inv.cases.iter().find(|e| e.name.as_str() == name) {
+                return Some(Tags::new(e.tags.clone()).expect("validated by inventory parse"));
+            }
+            inv.generated
+                .iter()
+                .filter(|g| {
+                    name.strip_prefix(g.prefix.as_str())
+                        .is_some_and(|rest| rest.starts_with('/'))
+                })
+                .max_by_key(|g| g.prefix.len())
+                .map(|g| Tags::new(g.tags.clone()).expect("validated by inventory parse"))
+        };
 
         if !human {
             let envelope = Envelope {
@@ -256,26 +256,37 @@ impl Runner {
         let mut summary = Summary::default();
 
         // Runtime cross-check: the static inventory and `all()` must
-        // agree (drift = harness bug).
+        // agree (drift = harness bug). Exact records match exactly;
+        // enumerated names may otherwise fall under a generated-row
+        // prefix.
         if let Some(inv) = &inventory {
             let enumerated: std::collections::BTreeSet<&str> =
                 names.iter().map(|s| s.as_str()).collect();
-            let recorded: std::collections::BTreeSet<&str> =
-                inv.keys().map(|s| s.as_str()).collect();
-            if enumerated != recorded {
+            let mut missing: Vec<&str> = inv
+                .cases
+                .iter()
+                .map(|e| e.name.as_str())
+                .filter(|n| !enumerated.contains(n))
+                .collect();
+            let mut unrecorded: Vec<&str> = names
+                .iter()
+                .map(|s| s.as_str())
+                .filter(|n| tags_of(n).is_none())
+                .collect();
+            missing.sort_unstable();
+            unrecorded.sort_unstable();
+            if !missing.is_empty() || !unrecorded.is_empty() {
                 bail!(
                     "inventory drift: tags section and all() disagree \
-                     (section-only: {:?}; all()-only: {:?})",
-                    recorded.difference(&enumerated).collect::<Vec<_>>(),
-                    enumerated.difference(&recorded).collect::<Vec<_>>(),
+                     (section-only: {missing:?}; all()-only: {unrecorded:?})",
                 );
             }
         }
 
         for (index, enumerated_name) in names.iter().enumerate() {
             // Scheduler: skip cases that do not apply to this target.
-            if let Some(inv) = &inventory {
-                if let Some(tags) = inv.get(enumerated_name) {
+            if inventory.is_some() {
+                if let Some(tags) = tags_of(enumerated_name) {
                     if !tags.applies(missing_features) {
                         let mark = tags
                             .excluding_mark(missing_features)

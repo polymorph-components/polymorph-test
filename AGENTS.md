@@ -48,25 +48,27 @@ wit/                  L1 contract (the canonical copy)
 crates/               host-side Rust (tested natively at root)
   component-test-core      name grammar, tags, verdicts
   component-test-formats   lockfile, results model/JSONL, inventory scanner
-  component-test-sdk       guest SDK (registry, case!, tags section emission)
+  component-test-sdk       guest SDK (registry, prelude, verdict ergonomics)
+  component-test-sdk-macro #[suite] attribute (embeds the contract WIT)
   component-test-cli       `component-test` bin: lock, fold
   component-test-runner    wasmtime host-embed runner (`ct-runner` bin)
 components/           guest components (build with --target wasm32-wasip2)
   provider                 reference context provider
   runner-cli               composed wasi:cli runner core
-  sample-suite             demo suite (pass/fail/runtime-skip)
-  fixture-suite            runner-testing fixture (trap case, tagged pair)
+  sample-suite             demo suite (pass/fail/runtime-skip; #[suite] DX)
+  fixture-suite            runner fixture (trap, tagged pair, generated row)
 js/runner-node/       Node runner via jco (runner-is-provider topology)
 examples/compose/     wac composition walkthrough (bundle-then-plug)
 docs/findings.md      toolchain findings log
 ```
 
-**WIT deps are symlinks.** `components/*/wit` trees link back to the
-canonical copies (`wit/` for the contract;
-`components/provider/wit/provider.wit` for the provider WIT), so edits
-propagate automatically — validate with `just wit-check`. Don't replace
-the links with copies; and note symlinks require `core.symlinks`
-support on Windows checkouts.
+**WIT deps are symlinks; suites have none.** `components/provider` and
+`components/runner-cli` wit trees link back to the canonical copies
+(`wit/` for the contract; `components/provider/wit/provider.wit` for
+the provider WIT) — validate with `just wit-check`. Suite crates have
+no wit dir at all: the `#[suite]` macro embeds the contract WIT
+(symlinked into `crates/component-test-sdk-macro/`). Don't replace
+links with copies; symlinks require `core.symlinks` on Windows.
 
 ## Toolchain
 
@@ -107,8 +109,9 @@ before committing anything cross-cutting):
    cargo run -q -p component-test-runner --bin ct-runner -- \
      target/wasm32-wasip2/release/fixture_suite.wasm --missing hsm
    ```
-   Expected: sample = 1 passed / 1 failed / 1 skipped; fixture = 3
-   passed / 1 failed (trap) / 1 N/A. Exit code 1 in both.
+   Expected: sample = 1 passed / 1 failed / 1 skipped; fixture = 5
+   passed / 1 failed (trap) / 1 N/A / 7 total (incl. two generated
+   cases). Exit code 1 in both.
 2. **Composed runner** (see `examples/compose/README.md`): bundle via
    `wac compose`, plug via `wac plug`, run under `wasmtime run -W
    component-model-async -S p3`. Same sample-suite verdicts.
@@ -157,9 +160,11 @@ surface). Never hand-edit.
   guest-side (finding #1).
 - **Tags/lockfile generation reads the suite artifact, not the
   bundle** — wac strips custom sections (finding #14).
-- **The `case!` macro requires literal names/tags** (compile-time
-  section emission); dynamic registration bypasses inventory and will
-  trip the runner's drift cross-check.
+- **`#[case]` names/tags must be literal/derivable at expansion**
+  (compile-time section emission). Dynamic cases go through
+  `#[case_generator]`, whose prefix record keeps the inventory honest;
+  raw `Registry` registration bypasses inventory and will trip the
+  runner's drift cross-check.
 - The sample suite's expected output is asserted byte-for-byte in
   multiple places (runner acceptance, examples, jco README). If you
   change its cases, update all of them and the lockfile.

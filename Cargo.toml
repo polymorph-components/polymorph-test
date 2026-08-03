@@ -4,6 +4,7 @@ members = [
     "crates/component-test-core",
     "crates/component-test-formats",
     "crates/component-test-sdk",
+    "crates/component-test-sdk-macro",
     "crates/component-test-cli",
     "crates/component-test-runner",
     "components/fixture-suite",
@@ -22,6 +23,7 @@ repository = "https://github.com/lann/component-test"
 component-test-core = { path = "crates/component-test-core" }
 component-test-formats = { path = "crates/component-test-formats" }
 component-test-sdk = { path = "crates/component-test-sdk" }
+component-test-sdk-macro = { path = "crates/component-test-sdk-macro" }
 wit-bindgen = "0.60"
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }

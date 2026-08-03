@@ -47,19 +47,20 @@ fn lock(args: &[String]) -> anyhow::Result<()> {
     let suite_path = suite_path.context("missing suite.wasm path")?;
     let wasm = std::fs::read(&suite_path).with_context(|| format!("reading {suite_path}"))?;
 
-    let cases = inventory::inventory(&wasm)?;
+    let inv = inventory::inventory(&wasm)?;
     let artifact_sha256 = hex(&sha2::Sha256::digest(&wasm));
     let name = std::path::Path::new(&suite_path)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("suite")
         .to_string();
-    let lf = Lockfile::new(
+    let lf = Lockfile::with_generated(
         SuiteRef {
             name,
             artifact_sha256: Some(artifact_sha256),
         },
-        cases,
+        inv.cases,
+        inv.generated,
     );
     lf.validate()?;
     let toml = lf.to_toml()?;
@@ -70,7 +71,7 @@ fn lock(args: &[String]) -> anyhow::Result<()> {
         )?;
         existing.validate()?;
         // Inventory equality: names + tags (artifact hash may differ).
-        if existing.case != lf.case {
+        if existing.case != lf.case || existing.generated != lf.generated {
             bail!(
                 "lockfile drift: `{check}` does not match the suite's inventory \
                  (regenerate with `component-test lock` and review the diff)"

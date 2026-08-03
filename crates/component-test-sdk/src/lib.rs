@@ -13,6 +13,14 @@ use std::pin::Pin;
 pub use component_test_core::{
     normalize_segment, CaseName, Failure, NameError, Tag, Tags, Verdict,
 };
+pub use component_test_sdk_macro::suite;
+
+/// Convenience imports for suite crates. `Context` comes from the
+/// `#[suite]`-generated bindings (re-exported at the suite module
+/// root), not from here.
+pub mod prelude {
+    pub use crate::{check, check_eq, failed, skipped, GeneratedCase as Case, Verdict};
+}
 
 /// Boxed case body: borrows the (bindings-generated) context for the
 /// duration of the run.
@@ -23,6 +31,25 @@ pub struct Case<Ctx> {
     pub name: CaseName,
     pub tags: Tags,
     pub run: CaseFn<Ctx>,
+}
+
+/// A case produced by a `#[case_generator]`: a leaf name (one or more
+/// segments, appended under the row's prefix) plus the body.
+pub struct GeneratedCase<Ctx> {
+    leaf: String,
+    run: CaseFn<Ctx>,
+}
+
+impl<Ctx> GeneratedCase<Ctx> {
+    pub fn new<F>(leaf: impl Into<String>, run: F) -> Self
+    where
+        F: for<'a> Fn(&'a Ctx) -> Pin<Box<dyn Future<Output = Verdict> + 'a>> + 'static,
+    {
+        GeneratedCase {
+            leaf: leaf.into(),
+            run: Box::new(run),
+        }
+    }
 }
 
 /// Ordered case registry with grammar + duplicate enforcement.
@@ -86,6 +113,28 @@ impl<Ctx> Registry<Ctx> {
 
     pub fn get(&self, index: usize) -> Option<&Case<Ctx>> {
         self.cases.get(index)
+    }
+
+    /// Register a generated case under `prefix` with the row's `tags`.
+    /// Panics on grammar violations or duplicates — harness bugs.
+    pub fn generated(&mut self, prefix: &str, tags: &[&str], case: GeneratedCase<Ctx>) {
+        let name = format!("{prefix}/{}", case.leaf);
+        let name = CaseName::parse(&name)
+            .unwrap_or_else(|e| panic!("invalid generated case name `{name}`: {e}"));
+        if !self.names.insert(name.as_str().to_string()) {
+            panic!("duplicate case name `{name}`");
+        }
+        let tags = Tags::new(
+            tags.iter()
+                .map(|t| Tag::parse(t).unwrap_or_else(|e| panic!("invalid tag `{t}`: {e}")))
+                .collect(),
+        )
+        .unwrap_or_else(|e| panic!("invalid tags on `{name}`: {e}"));
+        self.cases.push(Case {
+            name,
+            tags,
+            run: case.run,
+        });
     }
 }
 
