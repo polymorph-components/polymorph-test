@@ -70,8 +70,11 @@ const _: () = {
 /// Semantics:
 /// - **Names** derive from the module path + fn name (idents mapped
 ///   `_` → `-`; override a leaf with `#[case(name = "0x1a2b")]`;
-///   rename the root with `#[suite(name = "...")]`). Non-leaf segments
-///   must be kebab-case; validated at compile time.
+///   rename the root with `#[suite(name = "...")]`, or drop the root
+///   segment entirely with `#[suite(name = "")]` — an *unrooted* suite,
+///   for porting corpora whose established case ids share no common
+///   root). Non-leaf segments must be kebab-case; validated at compile
+///   time.
 /// - **Tags** (`"feature"` / `"!feature"`) gate cases against target
 ///   capability manifests. `#[cases(tags(...))]` on a module applies to
 ///   its subtree; per-feature, the nearest declaration wins whole.
@@ -360,6 +363,16 @@ fn path_tokens(path: &[Ident]) -> TokenStream2 {
     quote!(#(#path)::*)
 }
 
+/// Join a name prefix and a segment; an empty prefix (an unrooted
+/// suite's top level) contributes nothing.
+fn join_name(prefix: &str, seg: &str) -> String {
+    if prefix.is_empty() {
+        seg.to_string()
+    } else {
+        format!("{prefix}/{seg}")
+    }
+}
+
 // --------------------------------------------------------------- walking
 
 fn walk_items(
@@ -382,7 +395,7 @@ fn walk_items(
                     merge_scope(&mut scope, tags, m.span())?;
                 }
                 let seg = ident_to_segment(&m.ident.to_string());
-                let child_prefix = format!("{name_prefix}/{seg}");
+                let child_prefix = join_name(name_prefix, &seg);
                 mod_path.push(m.ident.clone());
                 if let Some((_, children)) = m.content.as_mut() {
                     // Submodules see the suite-level names and the SDK
@@ -446,7 +459,7 @@ fn walk_items(
                     let mut fn_path = mod_path.clone();
                     fn_path.push(f.sig.ident.clone());
                     cases.push(CaseDef {
-                        name: format!("{name_prefix}/{leaf}"),
+                        name: join_name(name_prefix, &leaf),
                         tags: scope.iter().map(|(_, t)| t.clone()).collect(),
                         fn_path,
                         is_async: f.sig.asyncness.is_some(),
@@ -457,7 +470,7 @@ fn walk_items(
                     let mut scope = inherited.clone();
                     merge_scope(&mut scope, gen_attr.tags, f.span())?;
                     let prefix = match gen_attr.prefix {
-                        Some(p) => format!("{name_prefix}/{p}"),
+                        Some(p) => join_name(name_prefix, &p),
                         None => {
                             return Err(Error::new(
                                 f.span(),
