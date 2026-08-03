@@ -6,6 +6,6 @@ pub mod marks;
 pub mod name;
 pub mod verdict;
 
-pub use marks::{Mark, MarkParseError, Marks};
+pub use marks::{Mark, MarkParseError, Marks, MarksError};
 pub use name::{normalize_segment, CaseName, NameError};
 pub use verdict::{Failure, Provenance, Verdict};

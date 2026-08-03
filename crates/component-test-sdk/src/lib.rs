@@ -58,12 +58,13 @@ impl<Ctx> Registry<Ctx> {
         if !self.names.insert(name.as_str().to_string()) {
             panic!("duplicate case name `{name}` (check post-normalization collisions)");
         }
-        let marks = Marks(
+        let marks = Marks::new(
             marks
                 .iter()
                 .map(|m| Mark::parse(m).unwrap_or_else(|e| panic!("invalid mark `{m}`: {e}")))
                 .collect(),
-        );
+        )
+        .unwrap_or_else(|e| panic!("invalid marks on `{name}`: {e}"));
         self.cases.push(Case {
             name,
             marks,
@@ -171,7 +172,7 @@ mod tests {
         crate::case!(reg, "a/y", ["hsm"], ok);
         assert_eq!(reg.len(), 2);
         assert_eq!(reg.get(0).unwrap().name.as_str(), "a/x");
-        assert_eq!(reg.get(1).unwrap().marks.0.len(), 1);
+        assert_eq!(reg.get(1).unwrap().marks.as_slice().len(), 1);
     }
 
     #[test]

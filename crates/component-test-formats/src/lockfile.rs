@@ -75,6 +75,8 @@ impl Lockfile {
             if !seen.insert(entry.name.as_str()) {
                 bail!("duplicate case name `{}`", entry.name);
             }
+            component_test_core::Marks::new(entry.marks.clone())
+                .map_err(|e| anyhow::anyhow!("case `{}`: {e}", entry.name))?;
             for mark in &entry.marks {
                 if mark.is_negative() {
                     negative.insert(mark.feature());
@@ -181,6 +183,16 @@ mod tests {
     }
 
     #[test]
+    fn contradictory_marks_rejected() {
+        let lf = lockfile(vec![
+            entry("a/pos", &["hsm", "!hsm"]),
+            entry("a/neg", &["!hsm"]),
+        ]);
+        let err = lf.validate().unwrap_err().to_string();
+        assert!(err.contains("contradictory"), "{err}");
+    }
+
+    #[test]
     fn coverage() {
         let lf = lockfile(vec![entry("a/x", &[]), entry("a/y", &[])]);
         lf.check_coverage(["a/x", "a/y"]).unwrap();
@@ -192,7 +204,7 @@ mod tests {
     #[test]
     fn marks_applicability_integration() {
         let e = entry("a/hsm-case", &["hsm", "!sim"]);
-        let marks = component_test_core::Marks(e.marks.clone());
+        let marks = component_test_core::Marks::new(e.marks.clone()).unwrap();
         assert!(marks.applies(&["sim"]));
         assert!(!marks.applies(&["hsm", "sim"]));
         assert!(!marks.applies::<&str>(&[]));

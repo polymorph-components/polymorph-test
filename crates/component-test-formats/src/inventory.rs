@@ -44,6 +44,8 @@ pub fn parse_marks_records(bytes: &[u8]) -> anyhow::Result<Vec<CaseEntry>> {
                 Mark::parse(m).map_err(|e| anyhow::anyhow!("invalid mark `{m}` on `{name}`: {e}"))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
+        component_test_core::Marks::new(marks.clone())
+            .map_err(|e| anyhow::anyhow!("case `{name}`: {e}"))?;
         entries.push(CaseEntry { name, marks });
     }
     Ok(entries)
@@ -79,5 +81,6 @@ mod tests {
         assert!(parse_marks_records(b"Bad/Name\n").is_err());
         assert!(parse_marks_records(b"a/x\na/x\n").is_err());
         assert!(parse_marks_records(b"a/x Bad_Mark\n").is_err());
+        assert!(parse_marks_records(b"a/x hsm !hsm\n").is_err());
     }
 }

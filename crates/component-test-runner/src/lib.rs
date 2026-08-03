@@ -228,7 +228,12 @@ impl Runner {
                 Ok(entries) => Some(
                     entries
                         .into_iter()
-                        .map(|e| (e.name.as_str().to_string(), Marks(e.marks)))
+                        .map(|e| {
+                            (
+                                e.name.as_str().to_string(),
+                                Marks::new(e.marks).expect("validated by inventory parse"),
+                            )
+                        })
                         .collect(),
                 ),
                 Err(_) => None,

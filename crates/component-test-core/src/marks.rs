@@ -98,11 +98,64 @@ mod serde_impl {
     }
 }
 
-/// A case's marks, with the applicability predicate.
+/// Error constructing a mark set.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MarksError {
+    /// The same feature appears with both polarities: such a case can
+    /// never apply anywhere, which is always a bug (disabling a case
+    /// belongs to ratchets, not mark tricks).
+    Contradiction(String),
+    /// The same mark appears twice.
+    Duplicate(String),
+}
+
+impl fmt::Display for MarksError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MarksError::Contradiction(feature) => {
+                write!(f, "contradictory marks: both `{feature}` and `!{feature}`")
+            }
+            MarksError::Duplicate(mark) => write!(f, "duplicate mark `{mark}`"),
+        }
+    }
+}
+
+impl std::error::Error for MarksError {}
+
+/// A case's validated mark set: at most one mark per feature name (a
+/// feature marked with both polarities is rejected — see
+/// [`MarksError::Contradiction`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Marks(pub Vec<Mark>);
+pub struct Marks(Vec<Mark>);
 
 impl Marks {
+    /// Validate and construct.
+    pub fn new(marks: Vec<Mark>) -> Result<Self, MarksError> {
+        for (i, mark) in marks.iter().enumerate() {
+            for earlier in &marks[..i] {
+                if earlier == mark {
+                    return Err(MarksError::Duplicate(mark.to_string()));
+                }
+                if earlier.feature() == mark.feature() {
+                    return Err(MarksError::Contradiction(mark.feature().to_string()));
+                }
+            }
+        }
+        Ok(Marks(marks))
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Mark> {
+        self.0.iter()
+    }
+
+    pub fn as_slice(&self) -> &[Mark] {
+        &self.0
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     /// Does a target missing `missing_features` get this case?
     /// Predicate: every `Requires` feature is NOT missing, and every
     /// `Declines` feature IS missing.
@@ -142,12 +195,27 @@ mod tests {
     }
 
     #[test]
+    fn construction_invariants() {
+        let hsm = || Mark::parse("hsm").unwrap();
+        let not_hsm = || Mark::parse("!hsm").unwrap();
+        assert_eq!(
+            Marks::new(vec![hsm(), not_hsm()]).unwrap_err(),
+            MarksError::Contradiction("hsm".into())
+        );
+        assert_eq!(
+            Marks::new(vec![not_hsm(), not_hsm()]).unwrap_err(),
+            MarksError::Duplicate("!hsm".into())
+        );
+        Marks::new(vec![hsm(), Mark::parse("!sim").unwrap()]).unwrap();
+    }
+
+    #[test]
     fn applicability() {
         let unmarked = Marks::default();
         assert!(unmarked.applies::<&str>(&[]));
         assert!(unmarked.applies(&["anything"]));
 
-        let requires = Marks(vec![Mark::parse("hsm").unwrap()]);
+        let requires = Marks::new(vec![Mark::parse("hsm").unwrap()]).unwrap();
         assert!(requires.applies::<&str>(&[]));
         assert!(!requires.applies(&["hsm"]));
         assert_eq!(
@@ -155,16 +223,17 @@ mod tests {
             "hsm"
         );
 
-        let declines = Marks(vec![Mark::parse("!hsm").unwrap()]);
+        let declines = Marks::new(vec![Mark::parse("!hsm").unwrap()]).unwrap();
         assert!(!declines.applies::<&str>(&[]));
         assert!(declines.applies(&["hsm"]));
 
         // conjunction: requires a AND b, declines c
-        let multi = Marks(vec![
+        let multi = Marks::new(vec![
             Mark::parse("a").unwrap(),
             Mark::parse("b").unwrap(),
             Mark::parse("!c").unwrap(),
-        ]);
+        ])
+        .unwrap();
         assert!(multi.applies(&["c"]));
         assert!(!multi.applies(&["a", "c"]));
         assert!(!multi.applies::<&str>(&[]));
