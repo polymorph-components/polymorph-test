@@ -189,7 +189,11 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
             })),
         };
         quote::quote_spanned! {span=>
-            registry.case(#name, &[#(#tags),*], move |ctx| #body);
+            registry.case(
+                ::component_test_sdk::arcstr::literal!(#name),
+                &[#(#tags),*],
+                move |ctx| #body,
+            );
         }
     });
     let gen_registrations = gens.iter().map(|g| {

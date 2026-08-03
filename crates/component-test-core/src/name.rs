@@ -12,6 +12,8 @@
 
 use core::fmt;
 
+use arcstr::ArcStr;
+
 /// Maximum total name length in bytes.
 pub const MAX_NAME_LEN: usize = 256;
 /// Maximum segment length in bytes.
@@ -19,9 +21,10 @@ pub const MAX_SEGMENT_LEN: usize = 64;
 /// Custom section name reserved for feature-mark metadata.
 pub const TAGS_SECTION: &str = "component-test:tags@0.1";
 
-/// A validated case name.
+/// A validated case name. Cheap to clone (refcounted; zero-cost for
+/// `arcstr::literal!`-backed names, which the SDK macros emit).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct CaseName(String);
+pub struct CaseName(ArcStr);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NameError {
@@ -90,6 +93,12 @@ pub fn is_wit_label(s: &str) -> Option<&'static str> {
 impl CaseName {
     /// Validate `name` against the normative grammar.
     pub fn parse(name: &str) -> Result<Self, NameError> {
+        Self::new(ArcStr::from(name))
+    }
+
+    /// Validate an already-shared string against the grammar (no
+    /// allocation; the SDK macros pass `arcstr::literal!` values).
+    pub fn new(name: ArcStr) -> Result<Self, NameError> {
         if name.is_empty() {
             return Err(NameError::Empty);
         }
@@ -123,7 +132,7 @@ impl CaseName {
                 }
             }
         }
-        Ok(CaseName(name.to_string()))
+        Ok(CaseName(name))
     }
 
     pub fn as_str(&self) -> &str {

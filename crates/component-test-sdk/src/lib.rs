@@ -18,8 +18,9 @@ use std::future::Future;
 use std::pin::Pin;
 
 pub use component_test_core::{
+    arcstr,
     name::{const_valid_name, const_valid_tag},
-    normalize_segment, CaseName, Failure, NameError, Tag, Tags, Verdict,
+    normalize_segment, ArcStr, CaseName, Failure, NameError, Tag, Tags, Verdict,
 };
 pub use component_test_sdk_macro::suite;
 
@@ -92,12 +93,12 @@ pub struct RegisteredCase {
 /// A case produced by a `#[case_generator]`: a leaf name (one or more
 /// segments, appended under the row's prefix) plus the body.
 pub struct GeneratedCase {
-    leaf: std::borrow::Cow<'static, str>,
+    leaf: ArcStr,
     run: CaseFn,
 }
 
 impl GeneratedCase {
-    pub fn new<F>(leaf: impl Into<std::borrow::Cow<'static, str>>, run: F) -> Self
+    pub fn new<F>(leaf: impl Into<ArcStr>, run: F) -> Self
     where
         F: for<'a> Fn(&'a TestContext) -> Pin<Box<dyn Future<Output = Verdict> + 'a>> + 'static,
     {
@@ -111,7 +112,7 @@ impl GeneratedCase {
 /// Ordered case registry with grammar + duplicate enforcement.
 pub struct Registry {
     cases: Vec<RegisteredCase>,
-    names: BTreeSet<String>,
+    names: BTreeSet<CaseName>,
 }
 
 impl Default for Registry {
@@ -132,13 +133,14 @@ impl Registry {
     /// violations or duplicates — a misdeclared case is a harness bug.
     /// `body` returns a boxed future borrowing the context; use
     /// [`case!`](crate::case) to register plain `async fn`s.
-    pub fn case<F>(&mut self, name: &str, tags: &[&str], body: F) -> &mut Self
+    pub fn case<F>(&mut self, name: impl Into<ArcStr>, tags: &[&str], body: F) -> &mut Self
     where
         F: for<'a> Fn(&'a TestContext) -> Pin<Box<dyn Future<Output = Verdict> + 'a>> + 'static,
     {
-        let name =
-            CaseName::parse(name).unwrap_or_else(|e| panic!("invalid case name `{name}`: {e}"));
-        if !self.names.insert(name.as_str().to_string()) {
+        let name = name.into();
+        let name = CaseName::new(name.clone())
+            .unwrap_or_else(|e| panic!("invalid case name `{name}`: {e}"));
+        if !self.names.insert(name.clone()) {
             panic!("duplicate case name `{name}` (check post-normalization collisions)");
         }
         let tags = Tags::new(
@@ -174,10 +176,10 @@ impl Registry {
     /// Register a generated case under `prefix` with the row's `tags`.
     /// Panics on grammar violations or duplicates — harness bugs.
     pub fn generated(&mut self, prefix: &str, tags: &[&str], case: GeneratedCase) {
-        let name = format!("{prefix}/{}", case.leaf);
-        let name = CaseName::parse(&name)
-            .unwrap_or_else(|e| panic!("invalid generated case name `{name}`: {e}"));
-        if !self.names.insert(name.as_str().to_string()) {
+        let name = ArcStr::from(format!("{prefix}/{}", case.leaf));
+        let name =
+            CaseName::new(name).unwrap_or_else(|e| panic!("invalid generated case name: {e}"));
+        if !self.names.insert(name.clone()) {
             panic!("duplicate case name `{name}`");
         }
         let tags = Tags::new(
@@ -216,7 +218,11 @@ macro_rules! case {
             static TAGS_RECORD: [u8; RECORD.len()] =
                 $crate::str_to_array::<{ RECORD.len() }>(RECORD);
         };
-        $registry.case($name, &[$($mark),*], move |ctx| Box::pin($body(ctx)))
+        $registry.case(
+            $crate::arcstr::literal!($name),
+            &[$($mark),*],
+            move |ctx| Box::pin($body(ctx)),
+        )
     }};
 }
 

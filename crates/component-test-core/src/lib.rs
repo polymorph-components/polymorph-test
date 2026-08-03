@@ -4,6 +4,8 @@
 
 pub mod name;
 pub mod tags;
+
+pub use arcstr::{self, ArcStr};
 pub mod verdict;
 
 pub use name::{normalize_segment, CaseName, NameError};
