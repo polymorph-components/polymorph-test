@@ -21,6 +21,6 @@ results wire format; fold it with `component-test fold`.
 Note: `wac plug` alone cannot build the bundle — it drops the
 provider's `factory`/`test-context` re-exports, and the result fails
 runner linking with `type mismatch in instance export 'context'` (see
-docs/findings.md). Custom sections (the marks inventory) are stripped
+docs/findings.md). Custom sections (the tags inventory) are stripped
 by `wac compose`: generate lockfiles from the suite artifact, not the
 bundle.

@@ -9,12 +9,12 @@ here are edits to frozen surfaces or verification steps skipped.
 `lann:component-test`: common infrastructure for testing WebAssembly
 components. A small frozen WIT contract between test *suites* and test
 *runners*, plus the tooling around it: guest SDK, inventory lockfiles,
-capability manifests via feature marks, a canonical results format,
+capability manifests via feature tags, a canonical results format,
 runners (wasmtime host-embed, composed wasi:cli, jco/Node), and a CLI.
 
 Design intent lives in three documents, in decreasing authority:
 
-- `README.md` — the contract, the feature-mark scheme, and the design
+- `README.md` — the contract, the feature-tag scheme, and the design
   commitments (each is load-bearing; do not weaken one without explicit
   direction).
 - `ARCHITECTURE.md` — the layer model (L0 producers … L6 workflow), the
@@ -46,16 +46,16 @@ them before re-litigating a decision.
 ```
 wit/                  L1 contract (the canonical copy)
 crates/               host-side Rust (tested natively at root)
-  component-test-core      name grammar, marks, verdicts
+  component-test-core      name grammar, tags, verdicts
   component-test-formats   lockfile, results model/JSONL, inventory scanner
-  component-test-sdk       guest SDK (registry, case!, marks section emission)
+  component-test-sdk       guest SDK (registry, case!, tags section emission)
   component-test-cli       `component-test` bin: lock, fold
   component-test-runner    wasmtime host-embed runner (`ct-runner` bin)
 components/           guest components (build with --target wasm32-wasip2)
   provider                 reference context provider
   runner-cli               composed wasi:cli runner core
   sample-suite             demo suite (pass/fail/runtime-skip)
-  fixture-suite            runner-testing fixture (trap case, marked pair)
+  fixture-suite            runner-testing fixture (trap case, tagged pair)
 js/runner-node/       Node runner via jco (runner-is-provider topology)
 examples/compose/     wac composition walkthrough (bundle-then-plug)
 docs/findings.md      toolchain findings log
@@ -100,7 +100,7 @@ cargo build --target wasm32-wasip2 --release \
 Full verification matrix (run whatever your change touches; all four
 before committing anything cross-cutting):
 
-1. **Host-embed runner** (also exercises marks scheduling + trap path):
+1. **Host-embed runner** (also exercises tags scheduling + trap path):
    ```sh
    cargo run -q -p component-test-runner --bin ct-runner -- \
      target/wasm32-wasip2/release/sample_suite.wasm
@@ -155,9 +155,9 @@ surface). Never hand-edit.
   in-flight stream read loses data (finding #5).
 - **`context.diagnostic` stays `async func`** — sync is unimplementable
   guest-side (finding #1).
-- **Marks/lockfile generation reads the suite artifact, not the
+- **Tags/lockfile generation reads the suite artifact, not the
   bundle** — wac strips custom sections (finding #14).
-- **The `case!` macro requires literal names/marks** (compile-time
+- **The `case!` macro requires literal names/tags** (compile-time
   section emission); dynamic registration bypasses inventory and will
   trip the runner's drift cross-check.
 - The sample suite's expected output is asserted byte-for-byte in

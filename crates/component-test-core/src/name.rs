@@ -17,7 +17,7 @@ pub const MAX_NAME_LEN: usize = 256;
 /// Maximum segment length in bytes.
 pub const MAX_SEGMENT_LEN: usize = 64;
 /// Custom section name reserved for feature-mark metadata.
-pub const MARKS_SECTION: &str = "component-test:marks@0.1";
+pub const TAGS_SECTION: &str = "component-test:tags@0.1";
 
 /// A validated case name.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]

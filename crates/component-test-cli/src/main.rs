@@ -2,7 +2,7 @@
 //!
 //! Subcommands (v0):
 //!   lock <suite.wasm> [-o tests.lock] [--check existing.lock]
-//!       Execution-free inventory from the suite's marks section.
+//!       Execution-free inventory from the suite's tags section.
 //!   fold [tests.lock] < results.jsonl
 //!       Fold a JSONL results stream into the document form + summary.
 
@@ -69,7 +69,7 @@ fn lock(args: &[String]) -> anyhow::Result<()> {
             &std::fs::read_to_string(&check).with_context(|| format!("reading {check}"))?,
         )?;
         existing.validate()?;
-        // Inventory equality: names + marks (artifact hash may differ).
+        // Inventory equality: names + tags (artifact hash may differ).
         if existing.case != lf.case {
             bail!(
                 "lockfile drift: `{check}` does not match the suite's inventory \

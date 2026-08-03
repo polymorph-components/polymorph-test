@@ -123,7 +123,7 @@ pub struct Document {
     pub terminated: bool,
 }
 
-/// Marker event ending a segment cleanly.
+/// Tager event ending a segment cleanly.
 pub const TERMINATOR: &str = r#"{"segment-end":true}"#;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

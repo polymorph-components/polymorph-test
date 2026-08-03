@@ -89,10 +89,10 @@ Not layers — they thread through several:
   `all()`) and potentially from L0 statically in the future (#18's
   headline benefit), and consumed at L4 (aggregation completeness checks)
   and L6 (lockfile update workflow). Lockfiles pin case names *and*
-  feature marks, and enforce the decline-pair lint (every positively
-  marked feature has a `!feature` case). Depends on L1's determinism and
+  feature tags, and enforce the decline-pair lint (every positively
+  tagged feature has a `!feature` case). Depends on L1's determinism and
   name-stability guarantees.
-- **Feature marks & capability manifests.** Marks (`<feature>` /
+- **Feature tags & capability manifests.** Tags (`<feature>` /
   `!<feature>`) are static L0 metadata (SDK-emitted custom section +
   lockfile); manifests are per-target facts (implementation ×
   environment). Applicability is a pure predicate over the two, evaluated

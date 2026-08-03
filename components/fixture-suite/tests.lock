@@ -3,15 +3,15 @@ version = "0.1"
 
 [suite]
 name = "fixture_suite"
-artifact_sha256 = "2a7796064ff9daf6e7e1f3f8c8092acc83965bd15bebdd2762cce3d8685c8504"
+artifact_sha256 = "fac048fc8b137a93c543a05069ae52c477cfa4576e0bb8587eea8046748c6158"
 
 [[case]]
 name = "fixture/hsm/attest"
-marks = ["hsm"]
+tags = ["hsm"]
 
 [[case]]
 name = "fixture/hsm/declined"
-marks = ["!hsm"]
+tags = ["!hsm"]
 
 [[case]]
 name = "fixture/trap/after"

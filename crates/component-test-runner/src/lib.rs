@@ -8,7 +8,7 @@
 
 use std::path::Path;
 
-use component_test_core::{Marks, Provenance};
+use component_test_core::{Provenance, Tags};
 use component_test_formats::results::{
     CaseResult, Envelope, Event, RunInfo, Status, SuiteInfo, RESULTS_VERSION, TERMINATOR,
 };
@@ -222,8 +222,8 @@ impl Runner {
     ) -> Result<Summary> {
         let human = matches!(mode, OutputMode::Human);
 
-        // Static inventory (marks) from the suite artifact, if present.
-        let inventory: Option<std::collections::BTreeMap<String, Marks>> =
+        // Static inventory (tags) from the suite artifact, if present.
+        let inventory: Option<std::collections::BTreeMap<String, Tags>> =
             match component_test_formats::inventory::inventory(&self.wasm_bytes) {
                 Ok(entries) => Some(
                     entries
@@ -231,7 +231,7 @@ impl Runner {
                         .map(|e| {
                             (
                                 e.name.as_str().to_string(),
-                                Marks::new(e.marks).expect("validated by inventory parse"),
+                                Tags::new(e.tags).expect("validated by inventory parse"),
                             )
                         })
                         .collect(),
@@ -264,7 +264,7 @@ impl Runner {
                 inv.keys().map(|s| s.as_str()).collect();
             if enumerated != recorded {
                 bail!(
-                    "inventory drift: marks section and all() disagree \
+                    "inventory drift: tags section and all() disagree \
                      (section-only: {:?}; all()-only: {:?})",
                     recorded.difference(&enumerated).collect::<Vec<_>>(),
                     enumerated.difference(&recorded).collect::<Vec<_>>(),
@@ -275,9 +275,9 @@ impl Runner {
         for (index, enumerated_name) in names.iter().enumerate() {
             // Scheduler: skip cases that do not apply to this target.
             if let Some(inv) = &inventory {
-                if let Some(marks) = inv.get(enumerated_name) {
-                    if !marks.applies(missing_features) {
-                        let mark = marks
+                if let Some(tags) = inv.get(enumerated_name) {
+                    if !tags.applies(missing_features) {
+                        let mark = tags
                             .excluding_mark(missing_features)
                             .map(|m| m.to_string())
                             .unwrap_or_default();

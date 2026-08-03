@@ -90,18 +90,18 @@ deliberately maximal: loosening later is compatible, tightening never is.
 - Hierarchy is prefix-grouping only; depth is unconstrained. Interop
   emitters map prefix → JUnit classname (`/` → `.`, documented-lossy).
 
-## Feature marks
+## Feature tags
 
 Capability gating lives *outside* the WIT contract, as static metadata
 carried alongside the suite (custom section and/or lockfile, emitted by the
 guest SDK from the same per-case declaration):
 
-- A case marked `<feature>` applies only to targets that have the feature.
-- A case marked `!<feature>` applies only to targets that *lack* it — these
+- A case tagged `<feature>` applies only to targets that have the feature.
+- A case tagged `!<feature>` applies only to targets that *lack* it — these
   cases assert the feature is properly *declined* (not silently
   half-served).
-- The applicability predicate: (every positive mark present) ∧ (no negative
-  mark present). Unmarked cases apply everywhere.
+- The applicability predicate: (every positive tag present) ∧ (no negative
+  tag present). Untagged cases apply everywhere.
 - Targets declare capability manifests (the features they are *missing*),
   keyed by implementation × environment.
 
@@ -132,28 +132,28 @@ In decreasing order of load-bearing:
 - **Enumeration is unconditional and deterministic.** `all()` takes no
   arguments and yields every case, in suite order, identically on every
   call and instance; names are stable. Lockfiles pin case names *and*
-  feature marks (mark drift is coverage drift).
+  feature tags (tag drift is coverage drift).
 - **The returned `result` is the sole verdict.** `ok` is a pass; `ctx` is a
   sideband that never alters the verdict. This keeps the run protocol free
   of split-brain rules and maps onto every guest's native idiom:
   `Result<(), Outcome>` and `?` in Rust, thrown exceptions in JS and
   Python — the same shape pytest (`Failed`/`Skipped` raisables) and
   libtest-mimic (`Result<(), Failed>`) converged on.
-- **Feature marks are metadata; `run` is feature-blind.** Gating is a set
-  operation over static marks and the target manifest, computable by any
-  layer without executing anything. Every feature named by a positive mark
-  must be named by at least one negative-marked (decline-asserting) case —
+- **Feature tags are metadata; `run` is feature-blind.** Gating is a set
+  operation over static tags and the target manifest, computable by any
+  layer without executing anything. Every feature named by a positive tag
+  must be named by at least one negative-tagged (decline-asserting) case —
   enforced as a lockfile lint, so declining coverage is structural, not
   aspirational.
 - **`skipped` is a claim, and exceptional.** A case returns
   `skipped(string)` only when a run-stable target fact turns out not to
   hold at run time (e.g. a declared hardware token is unavailable); the
   payload says what the case asserted instead. Gating knowable before the
-  run belongs in marks. (Kept as an escape hatch with eyes open: the
+  run belongs in tags. (Kept as an escape hatch with eyes open: the
   webcrypto conformance system needed zero runtime skips across ~8k
   self-contained cases, but platform-stored state — e.g. HSM-backed keys —
   breaks self-containment.)
-- **State is not a feature.** Marks name facts a case cannot change.
+- **State is not a feature.** Tags name facts a case cannot change.
   Cases needing platform state should provision–use–destroy within the
   case; a suite whose cases mutate facts other cases are gated on is
   broken regardless of the features model.
@@ -162,7 +162,7 @@ In decreasing order of load-bearing:
   neither the positive nor the decline case can run. Such features are
   consumed at the composition/workflow layers (per-world suite split,
   applicability derived from imports ∩ manifest, the structural claim
-  policed by a composition-time gate), never expressed as case marks.
+  policed by a composition-time gate), never expressed as case tags.
 - **`run` never traps.** Expectation mismatches are `failed`; a trap is
   recorded as that case's failure and the instance treated as poisoned
   (mandatorily — a trapped instance is permanently unusable). A
@@ -187,7 +187,7 @@ In decreasing order of load-bearing:
 
 Result-status vocabulary (for the future canonical results schema): an
 executed case yields `pass | fail | skipped`; the scheduler adds
-`not-applicable` (target facts, with the responsible mark as detail).
+`not-applicable` (target facts, with the responsible tag as detail).
 `deselected` is reserved for user-driven subset selection, distinct from
 both.
 
@@ -205,7 +205,7 @@ is cooperative-only — no parallelism).
 To verify early (tracked in issues): the growth story assumes composition
 tooling resolves a `test-context@0.1.x` import against a newer
 semver-compatible export (wac/wasmtime semver-aware linking); and feature
-marks in custom sections must survive componentization and composition
+tags in custom sections must survive componentization and composition
 tooling. Test both before anything leans on them.
 
 ## Provenance
@@ -221,7 +221,7 @@ Synthesized from one lineage and one composition model:
   [`lann/component-webcrypto`](https://github.com/lann/component-webcrypto)'s
   system forked and evolved (pure-compute, ~8000 cases; self-describing
   inventories, capability manifests, lockfiles, one results wire format,
-  many adapters, one aggregator). The feature-mark scheme restructures
+  many adapters, one aggregator). The feature-tag scheme restructures
   webcrypto's declared-missing-features + decline-assertion design, with
   the decline branch factored out into paired `!feature` cases.
 
@@ -236,14 +236,14 @@ WPT, `go test`, LLVM lit) is tracked in the issues.
 ## Scope (tracked in issues)
 
 - Guest SDKs: Rust (`suite!` macro) and JS (componentize-js) — including
-  single-declaration emission of feature marks (static metadata + paired
+  single-declaration emission of feature tags (static metadata + paired
   decline cases).
 - The reference `test-context` provider component.
 - Runners: `wasi:cli`, `wasi:http` (served UI + remote API), in-browser via
   jco, native embedding with a libtest-mimic frontend.
 - Semver-compatible-linking verification for the `test-context` growth path;
   custom-section survival through composition tooling.
-- Inventory lockfiles (names + marks) and the update workflow, including
+- Inventory lockfiles (names + tags) and the update workflow, including
   the decline-pair lint.
 - Canonical results JSON, aggregator/validator, markdown matrix, static
   viewer.

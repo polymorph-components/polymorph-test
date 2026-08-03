@@ -18,7 +18,7 @@ pub enum Failure {
     Failed(String),
     /// The case ran but could not reach its subject; the payload says
     /// what it asserted instead. Exceptional — gating knowable before
-    /// the run belongs in feature marks.
+    /// the run belongs in feature tags.
     Skipped(String),
 }
 

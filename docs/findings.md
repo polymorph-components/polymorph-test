@@ -84,7 +84,7 @@ Rust `wasm32-wasip2` target.
     fine). Both deserve upstream issues; reproducers in
     `js/runner-node/`.
 
-## Custom sections (marks inventory)
+## Custom sections (tags inventory)
 
 14. Survival: wasm-component-ld (wasip2 build) ✅; jco transpile ✅
     (lands in `*.core.wasm`, statically readable); **`wac compose`

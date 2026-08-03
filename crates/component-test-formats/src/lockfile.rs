@@ -1,4 +1,4 @@
-//! The inventory lockfile: every case name + its feature marks, in
+//! The inventory lockfile: every case name + its feature tags, in
 //! suite order, bound to a suite artifact. TOML, generated, reviewed as
 //! diffs.
 //!
@@ -10,7 +10,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{bail, Context as _};
-use component_test_core::{CaseName, Mark};
+use component_test_core::{CaseName, Tag};
 use serde::{Deserialize, Serialize};
 
 pub const LOCKFILE_VERSION: &str = "0.1";
@@ -38,7 +38,7 @@ pub struct SuiteRef {
 pub struct CaseEntry {
     pub name: CaseName,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub marks: Vec<Mark>,
+    pub tags: Vec<Tag>,
 }
 
 impl Lockfile {
@@ -63,7 +63,7 @@ impl Lockfile {
     }
 
     /// Grammar/duplicate/decline-pair lints. Returns the set of features
-    /// referenced by marks on success.
+    /// referenced by tags on success.
     pub fn validate(&self) -> anyhow::Result<BTreeSet<String>> {
         if self.version != LOCKFILE_VERSION {
             bail!("unsupported lockfile version {}", self.version);
@@ -75,9 +75,9 @@ impl Lockfile {
             if !seen.insert(entry.name.as_str()) {
                 bail!("duplicate case name `{}`", entry.name);
             }
-            component_test_core::Marks::new(entry.marks.clone())
+            component_test_core::Tags::new(entry.tags.clone())
                 .map_err(|e| anyhow::anyhow!("case `{}`: {e}", entry.name))?;
-            for mark in &entry.marks {
+            for mark in &entry.tags {
                 if mark.is_negative() {
                     negative.insert(mark.feature());
                 } else {
@@ -136,10 +136,10 @@ impl Lockfile {
 mod tests {
     use super::*;
 
-    fn entry(name: &str, marks: &[&str]) -> CaseEntry {
+    fn entry(name: &str, tags: &[&str]) -> CaseEntry {
         CaseEntry {
             name: CaseName::parse(name).unwrap(),
-            marks: marks.iter().map(|m| Mark::parse(m).unwrap()).collect(),
+            tags: tags.iter().map(|m| Tag::parse(m).unwrap()).collect(),
         }
     }
 
@@ -183,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn contradictory_marks_rejected() {
+    fn contradictory_tags_rejected() {
         let lf = lockfile(vec![
             entry("a/pos", &["hsm", "!hsm"]),
             entry("a/neg", &["!hsm"]),
@@ -202,11 +202,11 @@ mod tests {
     }
 
     #[test]
-    fn marks_applicability_integration() {
+    fn tags_applicability_integration() {
         let e = entry("a/hsm-case", &["hsm", "!sim"]);
-        let marks = component_test_core::Marks::new(e.marks.clone()).unwrap();
-        assert!(marks.applies(&["sim"]));
-        assert!(!marks.applies(&["hsm", "sim"]));
-        assert!(!marks.applies::<&str>(&[]));
+        let tags = component_test_core::Tags::new(e.tags.clone()).unwrap();
+        assert!(tags.applies(&["sim"]));
+        assert!(!tags.applies(&["hsm", "sim"]));
+        assert!(!tags.applies::<&str>(&[]));
     }
 }

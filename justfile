@@ -36,7 +36,7 @@ build:
 
 # --- verification matrix (AGENTS.md "Build & verify") -----------------
 
-# Path 1: wasmtime host-embed runner (marks scheduling + trap path).
+# Path 1: wasmtime host-embed runner (tags scheduling + trap path).
 verify-embed: build
     cargo run -q -p component-test-runner --bin ct-runner -- \
         {{release_dir}}/sample_suite.wasm; test $? -eq 1

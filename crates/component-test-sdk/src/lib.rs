@@ -2,7 +2,7 @@
 //!
 //! Deliberately independent of wit-bindgen: the suite crate owns its
 //! generated bindings (and their `Context` type); this crate provides
-//! the registry, name validation, marks, and verdict ergonomics that
+//! the registry, name validation, tags, and verdict ergonomics that
 //! the thin generated-glue delegates to. (Macro sugar that hides the
 //! glue entirely is tracked for later in M1.1.)
 
@@ -11,7 +11,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 pub use component_test_core::{
-    normalize_segment, CaseName, Failure, Mark, Marks, NameError, Verdict,
+    normalize_segment, CaseName, Failure, NameError, Tag, Tags, Verdict,
 };
 
 /// Boxed case body: borrows the (bindings-generated) context for the
@@ -21,7 +21,7 @@ pub type CaseFn<Ctx> = Box<dyn for<'a> Fn(&'a Ctx) -> Pin<Box<dyn Future<Output 
 /// One registered case.
 pub struct Case<Ctx> {
     pub name: CaseName,
-    pub marks: Marks,
+    pub tags: Tags,
     pub run: CaseFn<Ctx>,
 }
 
@@ -49,7 +49,7 @@ impl<Ctx> Registry<Ctx> {
     /// violations or duplicates — a misdeclared case is a harness bug.
     /// `body` returns a boxed future borrowing the context; use
     /// [`case!`](crate::case) to register plain `async fn`s.
-    pub fn case<F>(&mut self, name: &str, marks: &[&str], body: F) -> &mut Self
+    pub fn case<F>(&mut self, name: &str, tags: &[&str], body: F) -> &mut Self
     where
         F: for<'a> Fn(&'a Ctx) -> Pin<Box<dyn Future<Output = Verdict> + 'a>> + 'static,
     {
@@ -58,16 +58,15 @@ impl<Ctx> Registry<Ctx> {
         if !self.names.insert(name.as_str().to_string()) {
             panic!("duplicate case name `{name}` (check post-normalization collisions)");
         }
-        let marks = Marks::new(
-            marks
-                .iter()
-                .map(|m| Mark::parse(m).unwrap_or_else(|e| panic!("invalid mark `{m}`: {e}")))
+        let tags = Tags::new(
+            tags.iter()
+                .map(|m| Tag::parse(m).unwrap_or_else(|e| panic!("invalid mark `{m}`: {e}")))
                 .collect(),
         )
-        .unwrap_or_else(|e| panic!("invalid marks on `{name}`: {e}"));
+        .unwrap_or_else(|e| panic!("invalid tags on `{name}`: {e}"));
         self.cases.push(Case {
             name,
-            marks,
+            tags,
             run: Box::new(body),
         });
         self
@@ -93,17 +92,17 @@ impl<Ctx> Registry<Ctx> {
 /// Register an `async fn(&Context) -> Verdict` as a case:
 /// `case!(registry, "group/name", ["mark", "!other"], my_async_fn);`
 ///
-/// Also emits the case's inventory record (name + marks) into the
-/// `component-test:marks@0.1` custom section, enabling execution-free
-/// inventory/lockfile generation. Requires literal name/marks.
+/// Also emits the case's inventory record (name + tags) into the
+/// `component-test:tags@0.1` custom section, enabling execution-free
+/// inventory/lockfile generation. Requires literal name/tags.
 #[macro_export]
 macro_rules! case {
     ($registry:expr, $name:expr, [$($mark:expr),* $(,)?], $body:path) => {{
         const _: () = {
             const RECORD: &str = concat!($name $(, " ", $mark)*, "\n");
-            #[link_section = "component-test:marks@0.1"]
+            #[link_section = "component-test:tags@0.1"]
             #[used]
-            static MARKS_RECORD: [u8; RECORD.len()] =
+            static TAGS_RECORD: [u8; RECORD.len()] =
                 $crate::str_to_array::<{ RECORD.len() }>(RECORD);
         };
         $registry.case($name, &[$($mark),*], move |ctx| Box::pin($body(ctx)))
@@ -172,7 +171,7 @@ mod tests {
         crate::case!(reg, "a/y", ["hsm"], ok);
         assert_eq!(reg.len(), 2);
         assert_eq!(reg.get(0).unwrap().name.as_str(), "a/x");
-        assert_eq!(reg.get(1).unwrap().marks.as_slice().len(), 1);
+        assert_eq!(reg.get(1).unwrap().tags.as_slice().len(), 1);
     }
 
     #[test]
