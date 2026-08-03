@@ -9,3 +9,4 @@ repository.workspace = true
 [dependencies]
 component-test-core = { workspace = true }
 component-test-sdk-macro = { workspace = true }
+wit-bindgen = { workspace = true }

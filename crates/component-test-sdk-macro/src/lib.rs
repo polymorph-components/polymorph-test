@@ -17,20 +17,6 @@ use syn::{
     Meta, Result,
 };
 
-/// The contract WIT, embedded at macro build time.
-const CONTRACT_WIT: &str = include_str!("../tests.wit");
-
-// A checkout without symlink support embeds the link *text* instead of
-// the contract; fail comprehensibly at macro build time.
-const _: () = {
-    let b = CONTRACT_WIT.as_bytes();
-    // must contain "package lann:component-test"
-    assert!(
-        b.len() > 100,
-        "embedded tests.wit is implausibly small: symlink not resolved? (needs core.symlinks on Windows)"
-    );
-};
-
 /// Declare a test-suite component from a module tree.
 ///
 /// ```ignore
@@ -237,51 +223,10 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
             }
         });
 
-    let wit = CONTRACT_WIT;
     let glue = quote! {
-        #[allow(warnings)]
-        mod __ct_bindings {
-            wit_bindgen::generate!({
-                inline: #wit,
-                path: [],
-                world: "suite",
-                generate_all,
-            });
-        }
-
+        use ::component_test_sdk::bindings as __ct_bindings;
         #[allow(unused_imports)]
         use ::component_test_sdk::prelude::*;
-        /// The runner-provided per-case context: a curated wrapper over
-        /// the raw contract binding. Unwrapped contract methods remain
-        /// reachable through `Deref`.
-        #[repr(transparent)]
-        pub struct TestContext(__ct_bindings::lann::component_test::test_context::Context);
-
-        impl TestContext {
-            fn __from_raw(
-                raw: &__ct_bindings::lann::component_test::test_context::Context,
-            ) -> &TestContext {
-                // Sound: repr(transparent) single-field wrapper.
-                unsafe {
-                    &*(raw as *const __ct_bindings::lann::component_test::test_context::Context
-                        as *const TestContext)
-                }
-            }
-
-            /// Report a diagnostic message (the sideband; never affects
-            /// the verdict). Runners surface these with the case's
-            /// results; delivery may await the observer.
-            pub async fn diag(&self, msg: impl Into<::std::string::String>) {
-                self.0.diagnostic(msg.into()).await
-            }
-        }
-
-        impl ::std::ops::Deref for TestContext {
-            type Target = __ct_bindings::lann::component_test::test_context::Context;
-            fn deref(&self) -> &Self::Target {
-                &self.0
-            }
-        }
 
         #(#records)*
 
@@ -317,7 +262,7 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
                 ctx: &__ct_bindings::lann::component_test::test_context::Context,
             ) -> Result<(), __ct_bindings::exports::lann::component_test::tests::Outcome> {
                 use __ct_bindings::exports::lann::component_test::tests::Outcome;
-                let ctx = TestContext::__from_raw(ctx);
+                let ctx = TestContext::from_raw(ctx);
                 let verdict = __ct_with_registry(|reg| (reg.get(self.index).unwrap().run)(ctx));
                 verdict.await.map_err(|failure| match failure {
                     ::component_test_sdk::Failure::Failed(d) => Outcome::Failed(d),
@@ -341,7 +286,7 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
             }
         }
 
-        __ct_bindings::export!(__CtSuite with_types_in __ct_bindings);
+        ::component_test_sdk::bindings::export!(__CtSuite with_types_in ::component_test_sdk::bindings);
     };
 
     items.push(Item::Verbatim(glue));
@@ -404,8 +349,6 @@ fn walk_items(
                     children.insert(
                         0,
                         Item::Verbatim(quote! {
-                            #[allow(unused_imports)]
-                            use super::TestContext;
                             #[allow(unused_imports)]
                             use ::component_test_sdk::prelude::*;
                         }),

@@ -23,11 +23,58 @@ pub use component_test_core::{
 };
 pub use component_test_sdk_macro::suite;
 
+/// The contract bindings, generated once here (async mode — there is
+/// no reason for a Rust crate to use sync bindings; sync case bodies
+/// work fine inside async bindings). Suite crates never see WIT.
+#[allow(warnings)]
+pub mod bindings {
+    wit_bindgen::generate!({
+        path: "tests.wit",
+        world: "suite",
+        generate_all,
+        pub_export_macro: true,
+        default_bindings_module: "component_test_sdk::bindings",
+    });
+}
+
+/// The runner-provided per-case context: a curated wrapper over the
+/// raw contract binding. Unwrapped contract methods remain reachable
+/// through `Deref`.
+#[repr(transparent)]
+pub struct TestContext(bindings::lann::component_test::test_context::Context);
+
+impl TestContext {
+    #[doc(hidden)]
+    pub fn from_raw(raw: &bindings::lann::component_test::test_context::Context) -> &TestContext {
+        // Sound: repr(transparent) single-field wrapper.
+        unsafe {
+            &*(raw as *const bindings::lann::component_test::test_context::Context
+                as *const TestContext)
+        }
+    }
+
+    /// Report a diagnostic message (the sideband; never affects the
+    /// verdict). Runners surface these with the case's results;
+    /// delivery may await the observer.
+    pub async fn diag(&self, msg: impl Into<String>) {
+        self.0.diagnostic(msg.into()).await
+    }
+}
+
+impl std::ops::Deref for TestContext {
+    type Target = bindings::lann::component_test::test_context::Context;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// Convenience imports for suite crates. `Context` comes from the
 /// `#[suite]`-generated bindings (re-exported at the suite module
 /// root), not from here.
 pub mod prelude {
-    pub use crate::{check, check_eq, failed, gen_case, skipped, GeneratedCase as Case, Verdict};
+    pub use crate::{
+        check, check_eq, failed, gen_case, skipped, GeneratedCase as Case, TestContext, Verdict,
+    };
 }
 
 /// Boxed case body: borrows the (bindings-generated) context for the
