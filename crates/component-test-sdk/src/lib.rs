@@ -188,9 +188,10 @@ impl Registry {
     /// invariant is what the runner's drift cross-check relies on).
     /// Panics on violations — harness bugs.
     pub fn generated_named(&mut self, row_prefix: &str, tags: &Tags, name: CaseName, run: CaseFn) {
-        let under_row = name
-            .prefix()
-            .is_some_and(|p| p.strip_prefix(row_prefix).is_some_and(|r| r.is_empty() || r.starts_with('/')));
+        let under_row = name.prefix().is_some_and(|p| {
+            p.strip_prefix(row_prefix)
+                .is_some_and(|r| r.is_empty() || r.starts_with('/'))
+        });
         if !under_row {
             panic!("generated case `{name}` is not under its row prefix `{row_prefix}`");
         }
@@ -340,10 +341,14 @@ mod tests {
     fn generated_named_registers_under_row() {
         let mut reg: Registry = Registry::new();
         let full = ArcStr::from("row/sub/tc1/whole");
-        let name =
-            CaseName::from_parts(full.substr(..11), full.substr(12..)).unwrap();
+        let name = CaseName::from_parts(full.substr(..11), full.substr(12..)).unwrap();
         let tags = Tags::default();
-        reg.generated_named("row/sub", &tags, name, Box::new(|_| Box::pin(async { Ok(()) })));
+        reg.generated_named(
+            "row/sub",
+            &tags,
+            name,
+            Box::new(|_| Box::pin(async { Ok(()) })),
+        );
         assert_eq!(reg.get(0).unwrap().0.as_str(), "row/sub/tc1/whole");
     }
 

@@ -299,7 +299,7 @@ impl<D: RunnerView + 'static> Runner<D> {
         mode: OutputMode,
         missing_features: &[String],
     ) -> Result<Summary> {
-        self.run_suite_with(suite_name, mode, missing_features, 1)
+        self.run_suite_with(suite_name, mode, missing_features, 1, 1)
             .await
     }
 
@@ -308,12 +308,21 @@ impl<D: RunnerView + 'static> Runner<D> {
     /// unlimited (single instance for the whole run; cheap suites);
     /// K = fresh instance every K cases. A trap always abandons the
     /// current instance regardless.
+    /// `jobs`: worker parallelism. Workers share the compiled engine,
+    /// own their stores, and run the modulo stripe
+    /// `runnable-index % jobs == worker` (expensive cases cluster, so
+    /// stripes balance better than chunks). Results are emitted in
+    /// census order regardless of completion order, so output is
+    /// byte-stable. With `jobs > 1`, `cases_per_instance = 0` means one
+    /// instance per worker, and diagnostics print with their case's
+    /// block rather than live.
     pub async fn run_suite_with(
         &self,
         suite_name: &str,
         mode: OutputMode,
         missing_features: &[String],
         cases_per_instance: usize,
+        jobs: usize,
     ) -> Result<Summary> {
         let human = matches!(mode, OutputMode::Human);
 
@@ -404,52 +413,147 @@ impl<D: RunnerView + 'static> Runner<D> {
             }
         }
 
-        let mut session: Option<Session<D>> = None;
-        for (index, enumerated_name) in names.iter().enumerate() {
-            // Scheduler: skip cases that do not apply to this target.
-            if inventory.is_some() {
-                if let Some(tags) = tags_of(enumerated_name) {
-                    if !tags.applies(missing_features) {
-                        let mark = tags
-                            .excluding_mark(missing_features)
-                            .map(|m| m.to_string())
-                            .unwrap_or_default();
-                        summary.not_applicable += 1;
-                        if human {
-                            println!("test {enumerated_name}: N/A ({mark})");
-                        } else {
-                            let event = Event::Case(CaseResult {
-                                case: enumerated_name.clone(),
-                                status: Status::NotApplicable,
-                                provenance: None,
-                                detail: Some(mark),
-                                seed: None,
-                                duration_ms: None,
-                                diagnostics: vec![],
-                                diagnostics_complete: true,
-                            });
-                            println!("{}", serde_json::to_string(&event)?);
-                        }
-                        continue;
+        // Scheduler pre-pass: census order, each entry either runs or
+        // is not-applicable (with the excluding tag).
+        enum Action {
+            Run,
+            NotApplicable(String),
+        }
+        let plan: Vec<(usize, &String, Action)> = names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| {
+                let action = match (&inventory, tags_of(name)) {
+                    (Some(_), Some(tags)) if !tags.applies(missing_features) => {
+                        Action::NotApplicable(
+                            tags.excluding_mark(missing_features)
+                                .map(|m| m.to_string())
+                                .unwrap_or_default(),
+                        )
                     }
+                    _ => Action::Run,
+                };
+                (index, name, action)
+            })
+            .collect();
+
+        // Parallel path: workers own stores; results are collected and
+        // emitted in census order below.
+        let mut parallel_results: std::collections::HashMap<usize, (String, Verdict, Vec<String>)> =
+            std::collections::HashMap::new();
+        if jobs > 1 {
+            let runnable: Vec<usize> = plan
+                .iter()
+                .filter(|(_, _, a)| matches!(a, Action::Run))
+                .map(|(i, _, _)| *i)
+                .collect();
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::scope(|scope| {
+                for worker in 0..jobs {
+                    let tx = tx.clone();
+                    let stripe: Vec<usize> = runnable
+                        .iter()
+                        .enumerate()
+                        .filter(|(k, _)| k % jobs == worker)
+                        .map(|(_, i)| *i)
+                        .collect();
+                    let names = &names;
+                    scope.spawn(move || {
+                        wasmtime_wasi::runtime::in_tokio(async move {
+                            let mut session: Option<Session<D>> = None;
+                            for index in stripe {
+                                if session.as_ref().is_some_and(|s| {
+                                    cases_per_instance != 0 && s.served >= cases_per_instance
+                                }) {
+                                    session = None;
+                                }
+                                if session.is_none() {
+                                    match self.new_session(false).await {
+                                        Ok(s) => session = Some(s),
+                                        Err(e) => {
+                                            let _ = tx.send((
+                                                index,
+                                                (
+                                                    names[index].clone(),
+                                                    Verdict::Trap(trap_detail(&e)),
+                                                    Vec::new(),
+                                                ),
+                                            ));
+                                            continue;
+                                        }
+                                    }
+                                }
+                                let result =
+                                    match self.run_case(session.as_mut().unwrap(), index).await {
+                                        Ok(r) => r,
+                                        Err(e) => (
+                                            names[index].clone(),
+                                            Verdict::Trap(trap_detail(&e)),
+                                            Vec::new(),
+                                        ),
+                                    };
+                                if matches!(result.1, Verdict::Trap(_)) {
+                                    session = None;
+                                }
+                                let _ = tx.send((index, result));
+                            }
+                        });
+                    });
                 }
+                drop(tx);
+                while let Ok((index, result)) = rx.recv() {
+                    parallel_results.insert(index, result);
+                }
+            });
+        }
+
+        let mut session: Option<Session<D>> = None;
+        for (index, enumerated_name, action) in plan {
+            if let Action::NotApplicable(mark) = action {
+                summary.not_applicable += 1;
+                if human {
+                    println!("test {enumerated_name}: N/A ({mark})");
+                } else {
+                    let event = Event::Case(CaseResult {
+                        case: enumerated_name.clone(),
+                        status: Status::NotApplicable,
+                        provenance: None,
+                        detail: Some(mark),
+                        seed: None,
+                        duration_ms: None,
+                        diagnostics: vec![],
+                        diagnostics_complete: true,
+                    });
+                    println!("{}", serde_json::to_string(&event)?);
+                }
+                continue;
             }
 
             if human {
                 println!("test {enumerated_name} ...");
             }
 
-            if session
-                .as_ref()
-                .is_some_and(|s| cases_per_instance != 0 && s.served >= cases_per_instance)
-            {
-                session = None;
-            }
-            if session.is_none() {
-                session = Some(self.new_session(human).await?);
-            }
-            let (name, verdict, diagnostics) =
-                match self.run_case(session.as_mut().unwrap(), index).await {
+            let (name, verdict, diagnostics) = if jobs > 1 {
+                let r = parallel_results
+                    .remove(&index)
+                    .expect("every runnable index has a worker result");
+                if human {
+                    for d in &r.2 {
+                        println!("    diag: {d}");
+                    }
+                }
+                r
+            } else {
+                if session
+                    .as_ref()
+                    .is_some_and(|s| cases_per_instance != 0 && s.served >= cases_per_instance)
+                {
+                    session = None;
+                }
+                if session.is_none() {
+                    session = Some(self.new_session(human).await?);
+                }
+                let result = match self.run_case(session.as_mut().unwrap(), index).await {
                     Ok(r) => r,
                     Err(e) => (
                         enumerated_name.clone(),
@@ -457,10 +561,13 @@ impl<D: RunnerView + 'static> Runner<D> {
                         Vec::new(),
                     ),
                 };
-            if matches!(verdict, Verdict::Trap(_)) {
-                // Poisoned: abandon the instance whatever the knob says.
-                session = None;
-            }
+                if matches!(result.1, Verdict::Trap(_)) {
+                    // Poisoned: abandon the instance whatever the knob
+                    // says.
+                    session = None;
+                }
+                result
+            };
 
             if human {
                 match &verdict {

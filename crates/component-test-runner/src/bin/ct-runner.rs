@@ -22,6 +22,7 @@ fn run() -> Result<ExitCode> {
     let mut mode = OutputMode::Human;
     let mut missing: Vec<String> = Vec::new();
     let mut cases_per_instance: usize = 1;
+    let mut jobs: usize = 1;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -30,6 +31,12 @@ fn run() -> Result<ExitCode> {
                     .next()
                     .ok_or_else(|| anyhow::anyhow!("--missing needs a list"))?;
                 missing.extend(list.split(',').filter(|s| !s.is_empty()).map(String::from));
+            }
+            "--jobs" => {
+                let v = args
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--jobs needs a number"))?;
+                jobs = v.parse::<usize>()?.max(1);
             }
             "--cases-per-instance" => {
                 let v = args
@@ -56,6 +63,7 @@ fn run() -> Result<ExitCode> {
         mode,
         &missing,
         cases_per_instance,
+        jobs,
     ))?;
 
     Ok(if summary.failed > 0 {
