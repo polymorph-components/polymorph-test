@@ -271,3 +271,154 @@ mod tests {
         assert_eq!(n.leaf(), "solo");
     }
 }
+
+/// Const-evaluable name validation (the grammar of [`CaseName::parse`],
+/// usable in `const` asserts for compile-time literal checking).
+/// Equivalence with `parse` is tested below.
+pub const fn const_valid_name(s: &str) -> bool {
+    let b = s.as_bytes();
+    if b.is_empty() || b.len() > MAX_NAME_LEN {
+        return false;
+    }
+    // Find the last '/' to know which segment is the leaf.
+    let mut last_slash: Option<usize> = None;
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'/' {
+            last_slash = Some(i);
+        }
+        i += 1;
+    }
+    let mut seg_start = 0;
+    let mut i = 0;
+    loop {
+        let at_end = i == b.len();
+        if at_end || b[i] == b'/' {
+            let seg_len = i - seg_start;
+            if seg_len == 0 || seg_len > MAX_SEGMENT_LEN {
+                return false;
+            }
+            // "." / ".." forbidden
+            if (seg_len == 1 && b[seg_start] == b'.')
+                || (seg_len == 2 && b[seg_start] == b'.' && b[seg_start + 1] == b'.')
+            {
+                return false;
+            }
+            let is_leaf = match last_slash {
+                None => true,
+                Some(ls) => seg_start > ls,
+            };
+            if is_leaf {
+                let mut j = seg_start;
+                while j < i {
+                    if !const_segment_char(b[j]) {
+                        return false;
+                    }
+                    j += 1;
+                }
+            } else if !const_valid_label_range(b, seg_start, i) {
+                return false;
+            }
+            if at_end {
+                return true;
+            }
+            seg_start = i + 1;
+        }
+        i += 1;
+    }
+}
+
+const fn const_segment_char(c: u8) -> bool {
+    matches!(c, b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.')
+}
+
+/// Const label check over `b[start..end]` (kebab-case words of
+/// `[a-z][a-z0-9]*`).
+const fn const_valid_label_range(b: &[u8], start: usize, end: usize) -> bool {
+    if start >= end {
+        return false;
+    }
+    let mut i = start;
+    loop {
+        // word start
+        if i >= end || !b[i].is_ascii_lowercase() {
+            return false;
+        }
+        i += 1;
+        while i < end && (b[i].is_ascii_lowercase() || b[i].is_ascii_digit()) {
+            i += 1;
+        }
+        if i == end {
+            return true;
+        }
+        if b[i] != b'-' {
+            return false;
+        }
+        i += 1; // past '-', next word
+    }
+}
+
+/// Const-evaluable tag validation (`feature` or `!feature`, feature a
+/// WIT label). Also rejects anything that would corrupt the
+/// space/newline-delimited section record format.
+pub const fn const_valid_tag(s: &str) -> bool {
+    let b = s.as_bytes();
+    let start = if !b.is_empty() && b[0] == b'!' { 1 } else { 0 };
+    b.len() > start && const_valid_label_range(b, start, b.len())
+}
+
+#[cfg(test)]
+mod const_tests {
+    use super::*;
+
+    #[test]
+    fn const_name_matches_parse() {
+        for s in [
+            "a",
+            "sample/math/add",
+            "group/source/case-375",
+            "alg/wycheproof/0x1a2b_16384.v2",
+            "a-b/c1/leaf",
+            "",
+            "/a",
+            "a/",
+            "a//b",
+            "A/b",
+            "a/b c",
+            "./a",
+            "a/../b",
+            "375/leaf",
+            "a_b/leaf",
+            "a.b/leaf",
+            "-a/leaf",
+            "a-/leaf",
+            "a/375",
+            "a/a_b",
+            "a/a.b",
+            "a\nb",
+            "solo",
+        ] {
+            assert_eq!(
+                const_valid_name(s),
+                CaseName::parse(s).is_ok(),
+                "mismatch for {s:?}"
+            );
+        }
+        let long_seg = "a".repeat(MAX_SEGMENT_LEN + 1);
+        assert!(!const_valid_name(&long_seg));
+    }
+
+    #[test]
+    fn const_tag_matches_parse() {
+        use crate::tags::Tag;
+        for s in [
+            "big-int", "!big-int", "hsm", "", "!", "Big-Int", "big_int", "!!x", "a b", "a\nb",
+        ] {
+            assert_eq!(
+                const_valid_tag(s),
+                Tag::parse(s).is_ok(),
+                "mismatch for {s:?}"
+            );
+        }
+    }
+}

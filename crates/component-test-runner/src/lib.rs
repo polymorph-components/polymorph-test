@@ -281,6 +281,32 @@ impl Runner {
                      (section-only: {missing:?}; all()-only: {unrecorded:?})",
                 );
             }
+
+            // Runtime decline-pair check over *materialized* cases: a
+            // zero-row generator must not vacuously satisfy the static
+            // lint (a `!feature` prefix record that produced no cases
+            // provides no decline coverage).
+            let mut positive = std::collections::BTreeSet::new();
+            let mut negative = std::collections::BTreeSet::new();
+            for name in &names {
+                if let Some(tags) = tags_of(name) {
+                    for tag in tags.iter() {
+                        if tag.is_negative() {
+                            negative.insert(tag.feature().to_string());
+                        } else {
+                            positive.insert(tag.feature().to_string());
+                        }
+                    }
+                }
+            }
+            let unpaired: Vec<&String> = positive.difference(&negative).collect();
+            if !unpaired.is_empty() {
+                bail!(
+                    "decline-pair check: feature(s) {unpaired:?} have materialized \
+                     positively-tagged cases but no materialized `!feature` case \
+                     (a zero-row generator cannot satisfy the lint)"
+                );
+            }
         }
 
         for (index, enumerated_name) in names.iter().enumerate() {

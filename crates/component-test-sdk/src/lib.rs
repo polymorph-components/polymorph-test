@@ -11,6 +11,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 pub use component_test_core::{
+    name::{const_valid_name, const_valid_tag},
     normalize_segment, CaseName, Failure, NameError, Tag, Tags, Verdict,
 };
 pub use component_test_sdk_macro::suite;
@@ -26,8 +27,9 @@ pub mod prelude {
 /// duration of the run.
 pub type CaseFn<Ctx> = Box<dyn for<'a> Fn(&'a Ctx) -> Pin<Box<dyn Future<Output = Verdict> + 'a>>>;
 
-/// One registered case.
-pub struct Case<Ctx> {
+/// One registered case (the registry's entry type; generator-produced
+/// cases are [`GeneratedCase`], prelude-aliased to `Case`).
+pub struct RegisteredCase<Ctx> {
     pub name: CaseName,
     pub tags: Tags,
     pub run: CaseFn<Ctx>,
@@ -54,7 +56,7 @@ impl<Ctx> GeneratedCase<Ctx> {
 
 /// Ordered case registry with grammar + duplicate enforcement.
 pub struct Registry<Ctx> {
-    cases: Vec<Case<Ctx>>,
+    cases: Vec<RegisteredCase<Ctx>>,
     names: BTreeSet<String>,
 }
 
@@ -91,7 +93,7 @@ impl<Ctx> Registry<Ctx> {
                 .collect(),
         )
         .unwrap_or_else(|e| panic!("invalid tags on `{name}`: {e}"));
-        self.cases.push(Case {
+        self.cases.push(RegisteredCase {
             name,
             tags,
             run: Box::new(body),
@@ -99,7 +101,7 @@ impl<Ctx> Registry<Ctx> {
         self
     }
 
-    pub fn cases(&self) -> &[Case<Ctx>] {
+    pub fn cases(&self) -> &[RegisteredCase<Ctx>] {
         &self.cases
     }
 
@@ -111,7 +113,7 @@ impl<Ctx> Registry<Ctx> {
         self.cases.is_empty()
     }
 
-    pub fn get(&self, index: usize) -> Option<&Case<Ctx>> {
+    pub fn get(&self, index: usize) -> Option<&RegisteredCase<Ctx>> {
         self.cases.get(index)
     }
 
@@ -130,7 +132,7 @@ impl<Ctx> Registry<Ctx> {
                 .collect(),
         )
         .unwrap_or_else(|e| panic!("invalid tags on `{name}`: {e}"));
-        self.cases.push(Case {
+        self.cases.push(RegisteredCase {
             name,
             tags,
             run: case.run,
@@ -148,6 +150,12 @@ impl<Ctx> Registry<Ctx> {
 macro_rules! case {
     ($registry:expr, $name:expr, [$($mark:expr),* $(,)?], $body:path) => {{
         const _: () = {
+            // Compile-time validation: the record is emitted into the
+            // inventory section whether or not registration ever runs,
+            // so bad literals must fail the build (a bad name could
+            // otherwise forge extra records via embedded separators).
+            assert!($crate::const_valid_name($name), "invalid case name literal");
+            $(assert!($crate::const_valid_tag($mark), "invalid tag literal");)*
             const RECORD: &str = concat!($name $(, " ", $mark)*, "\n");
             #[link_section = "component-test:tags@0.1"]
             #[used]
@@ -181,15 +189,21 @@ pub fn skipped(claim: impl Into<String>) -> Verdict {
 }
 
 /// Assert equality, failing the case with a one-line detail.
+/// Argument order is `check_eq!(actual, expected)`: the message reads
+/// "expected {expected}, got {actual}". The optional context message
+/// may be any `Display` expression.
 #[macro_export]
 macro_rules! check_eq {
-    ($left:expr, $right:expr $(, $ctxmsg:expr)?) => {{
-        let (l, r) = (&$left, &$right);
-        if l != r {
-            return $crate::failed(format!(
-                concat!($($ctxmsg, ": ",)? "expected {:?}, got {:?}"),
-                r, l
-            ));
+    ($actual:expr, $expected:expr) => {{
+        let (a, e) = (&$actual, &$expected);
+        if a != e {
+            return $crate::failed(format!("expected {e:?}, got {a:?}"));
+        }
+    }};
+    ($actual:expr, $expected:expr, $ctxmsg:expr) => {{
+        let (a, e) = (&$actual, &$expected);
+        if a != e {
+            return $crate::failed(format!("{}: expected {e:?}, got {a:?}", $ctxmsg));
         }
     }};
 }
@@ -234,13 +248,16 @@ mod tests {
         crate::case!(reg, "a/x", [], ok);
     }
 
+    // Bad literal names in `case!` are now a compile error (const
+    // assert), superseding the old runtime-panic test; the runtime
+    // path still guards non-macro registration:
     #[test]
     #[should_panic(expected = "invalid case name")]
-    fn registry_rejects_bad_names() {
+    fn registry_rejects_bad_names_at_runtime() {
         let mut reg: Registry<FakeCtx> = Registry::new();
         async fn ok(_: &FakeCtx) -> Verdict {
             Ok(())
         }
-        crate::case!(reg, "Bad/Name", [], ok);
+        reg.case("Bad/Name", &[], move |ctx| Box::pin(ok(ctx)));
     }
 }

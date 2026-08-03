@@ -43,6 +43,17 @@ mod fixture {
         }
     }
 
+    mod nested {
+        /// Depth-2 regression: module publicity is macro-managed.
+        mod deep {
+            #[case]
+            async fn leaf(ctx: &TestContext) -> Verdict {
+                ctx.diagnostic("two levels down".into()).await;
+                Ok(())
+            }
+        }
+    }
+
     /// Generated row: leaves computed from data under a static prefix.
     #[case_generator(prefix = "gen")]
     fn generated_cases() -> impl Iterator<Item = Case<TestContext>> {

@@ -109,9 +109,9 @@ before committing anything cross-cutting):
    cargo run -q -p component-test-runner --bin ct-runner -- \
      target/wasm32-wasip2/release/fixture_suite.wasm --missing hsm
    ```
-   Expected: sample = 1 passed / 1 failed / 1 skipped; fixture = 5
-   passed / 1 failed (trap) / 1 N/A / 7 total (incl. two generated
-   cases). Exit code 1 in both.
+   Expected: sample = 1 passed / 1 failed / 1 skipped; fixture = 6
+   passed / 1 failed (trap) / 1 N/A / 8 total (incl. two generated
+   cases and a depth-2 nested module). Exit code 1 in both.
 2. **Composed runner** (see `examples/compose/README.md`): bundle via
    `wac compose`, plug via `wac plug`, run under `wasmtime run -W
    component-model-async -S p3`. Same sample-suite verdicts.

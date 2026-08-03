@@ -20,6 +20,17 @@ use syn::{
 /// The contract WIT, embedded at macro build time.
 const CONTRACT_WIT: &str = include_str!("../tests.wit");
 
+// A checkout without symlink support embeds the link *text* instead of
+// the contract; fail comprehensibly at macro build time.
+const _: () = {
+    let b = CONTRACT_WIT.as_bytes();
+    // must contain "package lann:component-test"
+    assert!(
+        b.len() > 100,
+        "embedded tests.wit is implausibly small: symlink not resolved? (needs core.symlinks on Windows)"
+    );
+};
+
 #[proc_macro_attribute]
 pub fn suite(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut module = parse_macro_input!(item as ItemMod);
@@ -171,6 +182,7 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
         mod __ct_bindings {
             wit_bindgen::generate!({
                 inline: #wit,
+                path: [],
                 world: "suite",
                 generate_all,
             });
@@ -272,6 +284,10 @@ fn walk_items(
     for item in items.iter_mut() {
         match item {
             Item::Mod(m) => {
+                reject_cfg(&m.attrs, m.span())?;
+                // The generated registry lives at the suite root and
+                // references items through this module.
+                m.vis = syn::Visibility::Public(Default::default());
                 let mut scope = inherited.clone();
                 if let Some(tags) = take_attr_tags(&mut m.attrs, "cases")? {
                     merge_scope(&mut scope, tags, m.span())?;
@@ -498,6 +514,46 @@ fn validate(cases: &[CaseDef], gens: &[GenDef]) -> Result<()> {
         }
         sort(&g.tags, &mut positive, &mut negative);
     }
+    for c in cases {
+        for g in gens {
+            if c.name
+                .strip_prefix(&g.prefix)
+                .is_some_and(|rest| rest.starts_with('/'))
+            {
+                return Err(Error::new(
+                    c.span,
+                    format!(
+                        "case `{}` sits under generator prefix `{}/*`: leaves would collide \
+                         only at run time",
+                        c.name, g.prefix
+                    ),
+                ));
+            }
+        }
+    }
+    for (i, a) in gens.iter().enumerate() {
+        for b in gens.iter().skip(i + 1) {
+            let (short, long) = if a.prefix.len() <= b.prefix.len() {
+                (a, b)
+            } else {
+                (b, a)
+            };
+            if long
+                .prefix
+                .strip_prefix(&short.prefix)
+                .is_some_and(|rest| rest.starts_with('/'))
+            {
+                return Err(Error::new(
+                    long.span,
+                    format!(
+                        "generator prefixes `{}/*` and `{}/*` overlap: leaves would collide \
+                         only at run time",
+                        short.prefix, long.prefix
+                    ),
+                ));
+            }
+        }
+    }
     let unpaired: Vec<&String> = positive.difference(&negative).collect();
     if !unpaired.is_empty() {
         return Err(Error::new(
@@ -517,5 +573,31 @@ fn validate(cases: &[CaseDef], gens: &[GenDef]) -> Result<()> {
 }
 
 fn ident_to_segment(ident: &str) -> String {
-    ident.replace('_', "-")
+    ident.trim_start_matches("r#").replace('_', "-")
+}
+
+/// S3: inventory must not depend on build configuration — the section
+/// records are emitted unconditionally, so cfg-gated cases would drift.
+fn reject_cfg(attrs: &[syn::Attribute], span: proc_macro2::Span) -> Result<()> {
+    for attr in attrs {
+        if attr.path().is_ident("cfg") || attr.path().is_ident("cfg_attr") {
+            return Err(Error::new(
+                span,
+                "#[suite] items may not be cfg-gated: the inventory (and its lockfile) \
+                 must not depend on build configuration",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// M4: `#[case]` fns take no arguments or exactly `(ctx: &TestContext)`.
+fn check_case_fn_shape(f: &ItemFn) -> Result<()> {
+    if f.sig.inputs.len() > 1 {
+        return Err(Error::new(
+            f.sig.span(),
+            "#[case] functions take no arguments or exactly one (`ctx: &TestContext`)",
+        ));
+    }
+    Ok(())
 }

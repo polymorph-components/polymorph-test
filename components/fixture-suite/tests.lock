@@ -3,7 +3,7 @@ version = "0.1"
 
 [suite]
 name = "fixture_suite"
-artifact_sha256 = "bebc91784b44fa06c2fd70ef1d0fda204d1a72da3190ac9d2f60577fec8016ca"
+artifact_sha256 = "7f1c4a888e3438fb0e45481b01305cfe1f2a2344df3d983a5664fee605bda682"
 
 [[case]]
 name = "fixture/hsm/attest"
@@ -12,6 +12,9 @@ tags = ["hsm"]
 [[case]]
 name = "fixture/hsm/declined"
 tags = ["!hsm"]
+
+[[case]]
+name = "fixture/nested/deep/leaf"
 
 [[case]]
 name = "fixture/trap/after"
