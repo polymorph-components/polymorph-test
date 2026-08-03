@@ -129,6 +129,18 @@ impl<D: RunnerView + 'static> Runner<D> {
         let mut config = Config::new();
         config.wasm_component_model(true);
         config.wasm_component_model_async(true);
+        // Instance-per-case makes instantiation the hot path: reuse
+        // pooled slots (and their CoW memory mappings) instead of
+        // fresh mmaps per case. Sequential execution needs only a few
+        // live instances; keep the pool small but roomy per-instance.
+        let mut pool = wasmtime::PoolingAllocationConfig::new();
+        pool.total_memories(64)
+            .total_tables(64)
+            .total_core_instances(64)
+            .total_component_instances(32)
+            .max_memory_size(1 << 30)
+            .max_component_instance_size(1 << 20);
+        config.allocation_strategy(wasmtime::InstanceAllocationStrategy::Pooling(pool));
         let engine = Engine::new(&config)?;
 
         let wasm_bytes = std::fs::read(suite_path)
@@ -196,33 +208,47 @@ impl<D: RunnerView + 'static> Runner<D> {
         Ok(names)
     }
 
-    /// Run case `index` in its own fresh instance. Returns the name (from
-    /// this instance) and what happened.
-    async fn run_case(
-        &self,
-        index: usize,
-        live_print: bool,
-    ) -> Result<(String, Verdict, Vec<String>)> {
+    /// Start a session: fresh store + instance + enumeration, able to
+    /// serve multiple cases (the instance-granularity knob).
+    async fn new_session(&self, live_print: bool) -> Result<Session<D>> {
         let mut store = self.new_store(live_print)?;
         let instance = self.instantiate(&mut store).await?;
         let funcs = TestsFuncs::new(&mut store, &instance)?;
-
         let cases = funcs.all(&mut store).await?;
-        let case = cases
+        Ok(Session {
+            store,
+            funcs,
+            cases,
+            served: 0,
+        })
+    }
+
+    /// Run case `index` in the given session. Returns the name (from
+    /// this instance) and what happened.
+    async fn run_case(
+        &self,
+        session: &mut Session<D>,
+        index: usize,
+    ) -> Result<(String, Verdict, Vec<String>)> {
+        session.served += 1;
+        let store = &mut session.store;
+        let case = session
+            .cases
             .get(index)
             .cloned()
             .ok_or_else(|| format_err!("case index {index} out of range on re-enumeration"))?;
-        let name = funcs.name(&mut store, &case).await?;
+        let name = session.funcs.name(&mut *store, &case).await?;
 
         // Host context resource for this case, lent to the guest as a
         // borrow.
-        let ctx = Resource::<HostContext>::new_own(0);
-        let ctx_any = ctx.try_into_resource_any(&mut store)?;
+        let ctx = Resource::<HostContext>::new_own(session.served as u32);
+        let ctx_any = ctx.try_into_resource_any(&mut *store)?;
 
         let mut results = [Val::Bool(false)];
-        let call = funcs
+        let call = session
+            .funcs
             .run
-            .call_async(&mut store, &[case, Val::Resource(ctx_any)], &mut results)
+            .call_async(&mut *store, &[case, Val::Resource(ctx_any)], &mut results)
             .await;
 
         let diagnostics = std::mem::take(&mut store.data_mut().ct().diagnostics);
@@ -259,6 +285,22 @@ impl<D: RunnerView + 'static> Runner<D> {
         suite_name: &str,
         mode: OutputMode,
         missing_features: &[String],
+    ) -> Result<Summary> {
+        self.run_suite_with(suite_name, mode, missing_features, 1)
+            .await
+    }
+
+    /// `cases_per_instance`: the instance-granularity knob. 1 =
+    /// instance-per-case (maximum isolation; the default); 0 =
+    /// unlimited (single instance for the whole run; cheap suites);
+    /// K = fresh instance every K cases. A trap always abandons the
+    /// current instance regardless.
+    pub async fn run_suite_with(
+        &self,
+        suite_name: &str,
+        mode: OutputMode,
+        missing_features: &[String],
+        cases_per_instance: usize,
     ) -> Result<Summary> {
         let human = matches!(mode, OutputMode::Human);
 
@@ -349,6 +391,7 @@ impl<D: RunnerView + 'static> Runner<D> {
             }
         }
 
+        let mut session: Option<Session<D>> = None;
         for (index, enumerated_name) in names.iter().enumerate() {
             // Scheduler: skip cases that do not apply to this target.
             if inventory.is_some() {
@@ -383,14 +426,28 @@ impl<D: RunnerView + 'static> Runner<D> {
                 println!("test {enumerated_name} ...");
             }
 
-            let (name, verdict, diagnostics) = match self.run_case(index, human).await {
-                Ok(r) => r,
-                Err(e) => (
-                    enumerated_name.clone(),
-                    Verdict::Trap(format!("{e:#}")),
-                    Vec::new(),
-                ),
-            };
+            if session
+                .as_ref()
+                .is_some_and(|s| cases_per_instance != 0 && s.served >= cases_per_instance)
+            {
+                session = None;
+            }
+            if session.is_none() {
+                session = Some(self.new_session(human).await?);
+            }
+            let (name, verdict, diagnostics) =
+                match self.run_case(session.as_mut().unwrap(), index).await {
+                    Ok(r) => r,
+                    Err(e) => (
+                        enumerated_name.clone(),
+                        Verdict::Trap(trap_detail(&e)),
+                        Vec::new(),
+                    ),
+                };
+            if matches!(verdict, Verdict::Trap(_)) {
+                // Poisoned: abandon the instance whatever the knob says.
+                session = None;
+            }
 
             if human {
                 match &verdict {
@@ -454,6 +511,14 @@ fn trap_detail(e: &wasmtime::Error) -> String {
         .find_map(|l| l.split("wasm trap: ").nth(1))
         .map(|m| format!("wasm trap: {m}"))
         .unwrap_or_else(|| full.lines().next().unwrap_or("trap").to_string())
+}
+
+/// A live suite instance serving cases (see `run_suite_with`).
+struct Session<D: RunnerView + 'static> {
+    store: Store<D>,
+    funcs: TestsFuncs,
+    cases: Vec<Val>,
+    served: usize,
 }
 
 /// The suite's `tests` export surface, looked up dynamically.
