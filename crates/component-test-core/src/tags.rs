@@ -6,15 +6,17 @@
 
 use core::fmt;
 
+use arcstr::ArcStr;
+
 use crate::name::is_wit_label;
 
 /// One mark. Feature names are WIT labels.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Tag {
     /// `<feature>`: requires the target to have the feature.
-    Requires(String),
+    Requires(ArcStr),
     /// `!<feature>`: requires the target to lack the feature.
-    Declines(String),
+    Declines(ArcStr),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,9 +55,9 @@ impl Tag {
             });
         }
         Ok(if negated {
-            Tag::Declines(name.to_string())
+            Tag::Declines(ArcStr::from(name))
         } else {
-            Tag::Requires(name.to_string())
+            Tag::Requires(ArcStr::from(name))
         })
     }
 
@@ -129,6 +131,15 @@ impl std::error::Error for TagsError {}
 pub struct Tags(Vec<Tag>);
 
 impl Tags {
+    /// Parse and validate a slice of textual tags.
+    pub fn parse_all<S: AsRef<str>>(tags: &[S]) -> Result<Self, String> {
+        let parsed = tags
+            .iter()
+            .map(|t| Tag::parse(t.as_ref()).map_err(|e| e.to_string()))
+            .collect::<Result<Vec<_>, _>>()?;
+        Tags::new(parsed).map_err(|e| e.to_string())
+    }
+
     /// Validate and construct.
     pub fn new(tags: Vec<Tag>) -> Result<Self, TagsError> {
         for (i, mark) in tags.iter().enumerate() {

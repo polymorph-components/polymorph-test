@@ -13,7 +13,6 @@
 //! the thin generated-glue delegates to. (Macro sugar that hides the
 //! glue entirely is tracked for later in M1.1.)
 
-use std::collections::BTreeSet;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -82,10 +81,10 @@ pub mod prelude {
 pub type CaseFn =
     Box<dyn for<'a> Fn(&'a TestContext) -> Pin<Box<dyn Future<Output = Verdict> + 'a>>>;
 
-/// One registered case (the registry's entry type; generator-produced
-/// cases are [`GeneratedCase`], prelude-aliased to `Case`).
+/// One registered case (the registry's entry type, keyed by name;
+/// generator-produced cases are [`GeneratedCase`], prelude-aliased to
+/// `Case`).
 pub struct RegisteredCase {
-    pub name: CaseName,
     pub tags: Tags,
     pub run: CaseFn,
 }
@@ -109,19 +108,11 @@ impl GeneratedCase {
     }
 }
 
-/// Ordered case registry with grammar + duplicate enforcement.
+/// Ordered case registry with grammar + duplicate enforcement:
+/// insertion-ordered, name-keyed (one structure, one name copy).
+#[derive(Default)]
 pub struct Registry {
-    cases: Vec<RegisteredCase>,
-    names: BTreeSet<CaseName>,
-}
-
-impl Default for Registry {
-    fn default() -> Self {
-        Registry {
-            cases: Vec::new(),
-            names: BTreeSet::new(),
-        }
-    }
+    cases: indexmap::IndexMap<CaseName, RegisteredCase, foldhash::fast::RandomState>,
 }
 
 impl Registry {
@@ -140,25 +131,24 @@ impl Registry {
         let name = name.into();
         let name = CaseName::new(name.clone())
             .unwrap_or_else(|e| panic!("invalid case name `{name}`: {e}"));
-        if !self.names.insert(name.clone()) {
-            panic!("duplicate case name `{name}` (check post-normalization collisions)");
-        }
         let tags = Tags::new(
             tags.iter()
                 .map(|m| Tag::parse(m).unwrap_or_else(|e| panic!("invalid tag `{m}`: {e}")))
                 .collect(),
         )
         .unwrap_or_else(|e| panic!("invalid tags on `{name}`: {e}"));
-        self.cases.push(RegisteredCase {
-            name,
+        let entry = RegisteredCase {
             tags,
             run: Box::new(body),
-        });
+        };
+        if self.cases.insert(name.clone(), entry).is_some() {
+            panic!("duplicate case name `{name}` (check post-normalization collisions)");
+        }
         self
     }
 
-    pub fn cases(&self) -> &[RegisteredCase] {
-        &self.cases
+    pub fn cases(&self) -> impl Iterator<Item = (&CaseName, &RegisteredCase)> {
+        self.cases.iter()
     }
 
     pub fn len(&self) -> usize {
@@ -169,30 +159,23 @@ impl Registry {
         self.cases.is_empty()
     }
 
-    pub fn get(&self, index: usize) -> Option<&RegisteredCase> {
-        self.cases.get(index)
+    pub fn get(&self, index: usize) -> Option<(&CaseName, &RegisteredCase)> {
+        self.cases.get_index(index)
     }
 
     /// Register a generated case under `prefix` with the row's `tags`.
     /// Panics on grammar violations or duplicates — harness bugs.
-    pub fn generated(&mut self, prefix: &str, tags: &[&str], case: GeneratedCase) {
+    pub fn generated(&mut self, prefix: &str, tags: &Tags, case: GeneratedCase) {
         let name = ArcStr::from(format!("{prefix}/{}", case.leaf));
         let name =
             CaseName::new(name).unwrap_or_else(|e| panic!("invalid generated case name: {e}"));
-        if !self.names.insert(name.clone()) {
+        let entry = RegisteredCase {
+            tags: tags.clone(),
+            run: case.run,
+        };
+        if self.cases.insert(name.clone(), entry).is_some() {
             panic!("duplicate case name `{name}`");
         }
-        let tags = Tags::new(
-            tags.iter()
-                .map(|t| Tag::parse(t).unwrap_or_else(|e| panic!("invalid tag `{t}`: {e}")))
-                .collect(),
-        )
-        .unwrap_or_else(|e| panic!("invalid tags on `{name}`: {e}"));
-        self.cases.push(RegisteredCase {
-            name,
-            tags,
-            run: case.run,
-        });
     }
 }
 
@@ -313,8 +296,8 @@ mod tests {
         crate::case!(reg, "a/x", [], ok);
         crate::case!(reg, "a/y", ["hsm"], ok);
         assert_eq!(reg.len(), 2);
-        assert_eq!(reg.get(0).unwrap().name.as_str(), "a/x");
-        assert_eq!(reg.get(1).unwrap().tags.as_slice().len(), 1);
+        assert_eq!(reg.get(0).unwrap().0.as_str(), "a/x");
+        assert_eq!(reg.get(1).unwrap().1.tags.as_slice().len(), 1);
     }
 
     #[test]

@@ -201,8 +201,14 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
         let tags = &g.tags;
         let path = path_tokens(&g.fn_path);
         quote! {
-            for generated in #path() {
-                registry.generated(#prefix, &[#(#tags),*], generated);
+            {
+                // Row tags parsed once; per-case attachment is
+                // refcount bumps.
+                let row_tags = ::component_test_sdk::Tags::parse_all::<&str>(&[#(#tags),*])
+                    .expect("row tags validated at expansion");
+                for generated in #path() {
+                    registry.generated(#prefix, &row_tags, generated);
+                }
             }
         }
     });
@@ -258,7 +264,7 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
 
         impl __ct_bindings::exports::lann::component_test::tests::GuestTestCase for __CtCase {
             fn name(&self) -> String {
-                __ct_with_registry(|reg| reg.get(self.index).unwrap().name.as_str().to_string())
+                __ct_with_registry(|reg| reg.get(self.index).unwrap().0.as_str().to_string())
             }
 
             async fn run(
@@ -267,7 +273,7 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
             ) -> Result<(), __ct_bindings::exports::lann::component_test::tests::Outcome> {
                 use __ct_bindings::exports::lann::component_test::tests::Outcome;
                 let ctx = TestContext::from_raw(ctx);
-                let verdict = __ct_with_registry(|reg| (reg.get(self.index).unwrap().run)(ctx));
+                let verdict = __ct_with_registry(|reg| (reg.get(self.index).unwrap().1.run)(ctx));
                 verdict.await.map_err(|failure| match failure {
                     ::component_test_sdk::Failure::Failed(d) => Outcome::Failed(d),
                     ::component_test_sdk::Failure::Skipped(d) => Outcome::Skipped(d),
