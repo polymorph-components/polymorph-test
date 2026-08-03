@@ -69,8 +69,9 @@ interface tests {
     }
 
     /// Enumerate the suite: every case, in suite order, unconditionally.
-    /// Deterministic: the same suite yields the same cases in the same
-    /// order (lockfiles depend on this). Target-applicability filtering
+    /// Deterministic: a given suite artifact (the same component binary)
+    /// yields the same cases in the same order on every call, in every
+    /// instance (lockfiles depend on this). Target-applicability filtering
     /// happens outside this contract, from static feature-mark metadata.
     /// `async` so that implementations may block (e.g. dynamically
     /// constructed suites, or adapters draining another enumeration
