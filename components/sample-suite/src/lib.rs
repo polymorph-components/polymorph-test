@@ -2,15 +2,11 @@
 //! failing case, and a runtime-skipped case (the exceptional escape
 //! hatch), all emitting diagnostics.
 
-use component_test_sdk::prelude::*;
-
 #[component_test_sdk::suite]
 mod sample {
     mod math {
-        use component_test_sdk::prelude::*;
-
         #[case]
-        async fn add(ctx: &Context) -> Verdict {
+        async fn add(ctx: &TestContext) -> Verdict {
             ctx.diagnostic("computing 2 + 2".into()).await;
             let got = 2 + 2;
             ctx.diagnostic(format!("got {got}")).await;
@@ -19,7 +15,7 @@ mod sample {
         }
 
         #[case]
-        async fn mul(ctx: &Context) -> Verdict {
+        async fn mul(ctx: &TestContext) -> Verdict {
             ctx.diagnostic("computing 6 * 9".into()).await;
             let got = 6 * 9;
             ctx.diagnostic(format!("got {got}, expecting the ultimate answer"))
@@ -30,14 +26,12 @@ mod sample {
     }
 
     mod token {
-        use component_test_sdk::prelude::*;
-
         /// Demonstrates the runtime escape hatch: a run-stable target
         /// fact (a hardware token, per the manifest) turns out not to
         /// hold at run time. The case asserts what it can and reports a
         /// claim.
         #[case]
-        async fn attest(ctx: &Context) -> Verdict {
+        async fn attest(ctx: &TestContext) -> Verdict {
             ctx.diagnostic("probing for hardware token".into()).await;
             let token_present = false; // simulated: token unplugged
             if token_present {

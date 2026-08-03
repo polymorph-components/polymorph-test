@@ -176,11 +176,13 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
             });
         }
 
-        pub use __ct_bindings::lann::component_test::test_context::Context;
+        #[allow(unused_imports)]
+        use ::component_test_sdk::prelude::*;
+        pub use __ct_bindings::lann::component_test::test_context::Context as TestContext;
 
         #(#records)*
 
-        fn __ct_registry() -> ::component_test_sdk::Registry<Context> {
+        fn __ct_registry() -> ::component_test_sdk::Registry<TestContext> {
             let mut registry = ::component_test_sdk::Registry::new();
             #(#registrations)*
             #(#gen_registrations)*
@@ -188,12 +190,12 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
         }
 
         ::std::thread_local! {
-            static __CT_REGISTRY: ::std::cell::OnceCell<::component_test_sdk::Registry<Context>> =
+            static __CT_REGISTRY: ::std::cell::OnceCell<::component_test_sdk::Registry<TestContext>> =
                 const { ::std::cell::OnceCell::new() };
         }
 
         fn __ct_with_registry<R>(
-            f: impl FnOnce(&::component_test_sdk::Registry<Context>) -> R,
+            f: impl FnOnce(&::component_test_sdk::Registry<TestContext>) -> R,
         ) -> R {
             __CT_REGISTRY.with(|cell| f(cell.get_or_init(__ct_registry)))
         }
@@ -209,7 +211,7 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
 
             async fn run(
                 &self,
-                ctx: &Context,
+                ctx: &TestContext,
             ) -> Result<(), __ct_bindings::exports::lann::component_test::tests::Outcome> {
                 use __ct_bindings::exports::lann::component_test::tests::Outcome;
                 let verdict = __ct_with_registry(|reg| (reg.get(self.index).unwrap().run)(ctx));
@@ -278,12 +280,16 @@ fn walk_items(
                 let child_prefix = format!("{name_prefix}/{seg}");
                 mod_path.push(m.ident.clone());
                 if let Some((_, children)) = m.content.as_mut() {
-                    // Submodules see the suite-level names via `super`.
+                    // Submodules see the suite-level names and the SDK
+                    // prelude without their own imports (glob imports
+                    // yield to any explicit user items).
                     children.insert(
                         0,
                         Item::Verbatim(quote! {
                             #[allow(unused_imports)]
-                            use super::Context;
+                            use super::TestContext;
+                            #[allow(unused_imports)]
+                            use ::component_test_sdk::prelude::*;
                         }),
                     );
                     walk_items(children, &child_prefix, mod_path, &scope, cases, gens)?;

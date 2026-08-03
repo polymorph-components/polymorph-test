@@ -2,29 +2,23 @@
 //! the trap path, a tagged pair (via tag inheritance + polarity flip),
 //! and a generated row.
 
-use component_test_sdk::prelude::*;
-
 #[component_test_sdk::suite]
 mod fixture {
-    use component_test_sdk::prelude::*;
-
     mod trap {
-        use component_test_sdk::prelude::*;
-
         #[case]
-        async fn before(ctx: &Context) -> Verdict {
+        async fn before(ctx: &TestContext) -> Verdict {
             ctx.diagnostic("before the storm".into()).await;
             Ok(())
         }
 
         #[case]
-        async fn boom(ctx: &Context) -> Verdict {
+        async fn boom(ctx: &TestContext) -> Verdict {
             ctx.diagnostic("about to trap".into()).await;
             panic!("fixture trap: deliberate");
         }
 
         #[case]
-        async fn after(ctx: &Context) -> Verdict {
+        async fn after(ctx: &TestContext) -> Verdict {
             ctx.diagnostic("still alive in a fresh instance".into())
                 .await;
             Ok(())
@@ -33,10 +27,8 @@ mod fixture {
 
     #[cases(tags("hsm"))]
     mod hsm {
-        use component_test_sdk::prelude::*;
-
         #[case]
-        async fn attest(ctx: &Context) -> Verdict {
+        async fn attest(ctx: &TestContext) -> Verdict {
             ctx.diagnostic("exercising hsm attestation".into()).await;
             Ok(())
         }
@@ -44,7 +36,7 @@ mod fixture {
         /// Polarity flip: the inherited `hsm` is overridden by `!hsm` —
         /// the decline case lives with its family.
         #[case(tags("!hsm"))]
-        async fn declined(ctx: &Context) -> Verdict {
+        async fn declined(ctx: &TestContext) -> Verdict {
             ctx.diagnostic("asserting hsm is declined, not half-served".into())
                 .await;
             Ok(())
@@ -53,9 +45,9 @@ mod fixture {
 
     /// Generated row: leaves computed from data under a static prefix.
     #[case_generator(prefix = "gen")]
-    fn generated_cases() -> impl Iterator<Item = Case<Context>> {
+    fn generated_cases() -> impl Iterator<Item = Case<TestContext>> {
         (1u32..=2).map(|n| {
-            Case::new(format!("tc{n}"), move |ctx: &Context| {
+            Case::new(format!("tc{n}"), move |ctx: &TestContext| {
                 Box::pin(async move {
                     ctx.diagnostic(format!("generated case {n}")).await;
                     check_eq!(n * 2, n + n, "doubling");
