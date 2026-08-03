@@ -1,0 +1,19 @@
+[package]
+name = "component-test-runner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+component-test-core = { workspace = true }
+component-test-formats = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+futures = { workspace = true }
+wasmtime = { version = "47", features = ["component-model-async"] }
+wasmtime-wasi = "47"
+
+[[bin]]
+name = "ct-runner"
+path = "src/bin/ct-runner.rs"
