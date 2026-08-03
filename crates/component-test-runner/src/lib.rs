@@ -21,14 +21,30 @@ use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiVie
 const TESTS_INSTANCE: &str = "lann:component-test/tests@0.1.0";
 const CONTEXT_INSTANCE: &str = "lann:component-test/test-context@0.1.0";
 
-/// Store data: WASI plus the per-case diagnostic sink.
-pub struct Ctx {
-    wasi: WasiCtx,
-    table: ResourceTable,
+/// The runner's own per-case state (the diagnostic sink); embed one in
+/// custom store data and expose it via [`RunnerView`].
+#[derive(Default)]
+pub struct CtCtx {
     /// Diagnostics reported by the currently running case.
     diagnostics: Vec<String>,
     /// Print each diagnostic as it arrives (human mode).
     live_print: bool,
+}
+
+/// Store-data trait for [`Runner`]: expose the runner's state. Combined
+/// with `WasiView`, this is everything the runner itself needs; embed
+/// SUT contexts alongside and wire them in the linker hook of
+/// [`Runner::with_data`].
+pub trait RunnerView: WasiView {
+    fn ct(&mut self) -> &mut CtCtx;
+}
+
+/// Store data for plain suites (no SUT imports): WASI plus the
+/// diagnostic sink.
+pub struct Ctx {
+    wasi: WasiCtx,
+    table: ResourceTable,
+    ct: CtCtx,
 }
 
 impl WasiView for Ctx {
@@ -37,6 +53,12 @@ impl WasiView for Ctx {
             ctx: &mut self.wasi,
             table: &mut self.table,
         }
+    }
+}
+
+impl RunnerView for Ctx {
+    fn ct(&mut self) -> &mut CtCtx {
+        &mut self.ct
     }
 }
 
@@ -72,15 +94,38 @@ enum Verdict {
     Trap(String),
 }
 
-pub struct Runner {
+pub struct Runner<D: RunnerView + 'static = Ctx> {
     engine: Engine,
     component: Component,
-    linker: Linker<Ctx>,
+    linker: Linker<D>,
     wasm_bytes: Vec<u8>,
+    make_data: Box<dyn Fn() -> D + Send + Sync>,
 }
 
-impl Runner {
+impl Runner<Ctx> {
+    /// Runner for plain suites (WASI + test-context only).
     pub fn new(suite_path: &Path) -> Result<Self> {
+        Runner::with_data(
+            suite_path,
+            || Ctx {
+                wasi: WasiCtxBuilder::new().inherit_stderr().build(),
+                table: ResourceTable::new(),
+                ct: CtCtx::default(),
+            },
+            |_| Ok(()),
+        )
+    }
+}
+
+impl<D: RunnerView + 'static> Runner<D> {
+    /// Runner for suites with SUT imports: `make_data` builds the store
+    /// data for each fresh instance (embed the SUT context there);
+    /// `configure_linker` wires the SUT's `add_to_linker`.
+    pub fn with_data(
+        suite_path: &Path,
+        make_data: impl Fn() -> D + Send + Sync + 'static,
+        configure_linker: impl FnOnce(&mut Linker<D>) -> Result<()>,
+    ) -> Result<Self> {
         let mut config = Config::new();
         config.wasm_component_model(true);
         config.wasm_component_model_async(true);
@@ -91,8 +136,9 @@ impl Runner {
         let component = Component::new(&engine, &wasm_bytes)
             .with_context(|| format!("loading suite component {}", suite_path.display()))?;
 
-        let mut linker: Linker<Ctx> = Linker::new(&engine);
+        let mut linker: Linker<D> = Linker::new(&engine);
         wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
+        configure_linker(&mut linker)?;
 
         let mut ctx_instance = linker.instance(CONTEXT_INSTANCE)?;
         ctx_instance.resource(
@@ -105,11 +151,11 @@ impl Runner {
             |accessor, (_this, msg): (Resource<HostContext>, String)| {
                 Box::pin(async move {
                     accessor.with(|mut access| {
-                        let data = access.data_mut();
-                        if data.live_print {
+                        let ct = access.data_mut().ct();
+                        if ct.live_print {
                             println!("    diag: {msg}");
                         }
-                        data.diagnostics.push(msg);
+                        ct.diagnostics.push(msg);
                     });
                     Ok(())
                 })
@@ -121,23 +167,17 @@ impl Runner {
             component,
             linker,
             wasm_bytes,
+            make_data: Box::new(make_data),
         })
     }
 
-    fn new_store(&self, live_print: bool) -> Result<Store<Ctx>> {
-        let wasi = WasiCtxBuilder::new().inherit_stderr().build();
-        Ok(Store::new(
-            &self.engine,
-            Ctx {
-                wasi,
-                table: ResourceTable::new(),
-                diagnostics: Vec::new(),
-                live_print,
-            },
-        ))
+    fn new_store(&self, live_print: bool) -> Result<Store<D>> {
+        let mut store = Store::new(&self.engine, (self.make_data)());
+        store.data_mut().ct().live_print = live_print;
+        Ok(store)
     }
 
-    async fn instantiate(&self, store: &mut Store<Ctx>) -> Result<Instance> {
+    async fn instantiate(&self, store: &mut Store<D>) -> Result<Instance> {
         self.linker
             .instantiate_async(&mut *store, &self.component)
             .await
@@ -185,7 +225,7 @@ impl Runner {
             .call_async(&mut store, &[case, Val::Resource(ctx_any)], &mut results)
             .await;
 
-        let diagnostics = std::mem::take(&mut store.data_mut().diagnostics);
+        let diagnostics = std::mem::take(&mut store.data_mut().ct().diagnostics);
 
         let verdict = match call {
             Err(e) => Verdict::Trap(trap_detail(&e)),
@@ -424,11 +464,11 @@ struct TestsFuncs {
 }
 
 impl TestsFuncs {
-    fn new(store: &mut Store<Ctx>, instance: &Instance) -> Result<Self> {
+    fn new<D: RunnerView + 'static>(store: &mut Store<D>, instance: &Instance) -> Result<Self> {
         let (_, tests) = instance
             .get_export(&mut *store, None, TESTS_INSTANCE)
             .ok_or_else(|| format_err!("suite does not export `{TESTS_INSTANCE}`"))?;
-        let lookup = |store: &mut Store<Ctx>, name: &str| -> Result<Func> {
+        let lookup = |store: &mut Store<D>, name: &str| -> Result<Func> {
             let (_, idx) = instance
                 .get_export(&mut *store, Some(&tests), name)
                 .ok_or_else(|| format_err!("`{TESTS_INSTANCE}` does not export `{name}`"))?;
@@ -443,7 +483,7 @@ impl TestsFuncs {
         })
     }
 
-    async fn all(&self, store: &mut Store<Ctx>) -> Result<Vec<Val>> {
+    async fn all<D: RunnerView + 'static>(&self, store: &mut Store<D>) -> Result<Vec<Val>> {
         let mut results = [Val::Bool(false)];
         self.all
             .call_async(&mut *store, &[], &mut results)
@@ -455,7 +495,11 @@ impl TestsFuncs {
         }
     }
 
-    async fn name(&self, store: &mut Store<Ctx>, case: &Val) -> Result<String> {
+    async fn name<D: RunnerView + 'static>(
+        &self,
+        store: &mut Store<D>,
+        case: &Val,
+    ) -> Result<String> {
         let mut results = [Val::Bool(false)];
         self.name
             .call_async(&mut *store, std::slice::from_ref(case), &mut results)
