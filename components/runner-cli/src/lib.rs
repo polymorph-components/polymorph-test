@@ -1,4 +1,4 @@
-//! Prototype wasip3 CLI runner core.
+//! Composed wasip3 CLI runner core.
 //!
 //! Executes every case in the composed suite sequentially, draining each
 //! case's diagnostics stream concurrently with its `run`, and reports
@@ -158,7 +158,7 @@ impl RunGuest for Runner {
 
         if !human {
             out.line(
-                r#"{"component-test-results":"0.1","target":"prototype","suite":{"name":"sample"},"run":{"segment":0}}"#,
+                r#"{"component-test-results":"0.1","target":"composed-cli","suite":{"name":"sample"},"run":{"segment":0}}"#,
             )
             .await;
         }

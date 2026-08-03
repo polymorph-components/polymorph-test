@@ -8,9 +8,13 @@ canonical results format, aggregation, and CI packaging.
 
 Status: proposal. The WIT below is the seed; everything else is tracked in
 the [issues](../../issues). How the pieces layer together is described in
-[ARCHITECTURE.md](ARCHITECTURE.md). A working end-to-end prototype
-(provider, sample suite, wasip3 CLI runner, composition) lives in
-[`prototype/`](prototype/).
+[ARCHITECTURE.md](ARCHITECTURE.md). Layout: [`crates/`](crates/)
+(host-side Rust: core model, formats, guest SDK, CLI, host-embed
+runner), [`components/`](components/) (guest components: reference
+provider, composed CLI runner core, sample and fixture suites),
+[`js/`](js/) (Node runner via jco), [`examples/compose/`](examples/compose/)
+(composition walkthrough), [`docs/findings.md`](docs/findings.md)
+(toolchain findings log).
 
 ## The contract
 
@@ -48,7 +52,7 @@ context provider (a small `wac` script re-exporting `tests`,
 `test-context`, and `factory` from one shared provider instance), then
 **`wac plug`** the bundle into a runner core. The linker is still the test
 harness's registration step; the suite-facing step just has two nodes
-inside it. Validated end-to-end in [`prototype/`](prototype/).
+inside it. Validated end-to-end; see [`examples/compose/`](examples/compose/).
 
 ## Case names
 
@@ -225,8 +229,8 @@ Because this is a single evolving practice, agreement between those
 systems is weak evidence (possibly inertia) while their *divergences* are
 strong evidence of what each domain forced. Independent support so far is
 limited to external framework precedent (pytest, libtest-mimic, JUnit,
-NUnit, Go), Component Model ABI constraints, and the prototype's
-empirical findings; evaluation against an unrelated-lineage corpus (e.g.
+NUnit, Go), Component Model ABI constraints, and empirical toolchain
+findings ([`docs/findings.md`](docs/findings.md)); evaluation against an unrelated-lineage corpus (e.g.
 WPT, `go test`, LLVM lit) is tracked in the issues.
 
 ## Scope (tracked in issues)

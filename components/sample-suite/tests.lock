@@ -2,8 +2,8 @@
 version = "0.1"
 
 [suite]
-name = "suite"
-artifact_sha256 = "e4a60c241f183802cf5097b0957fe1bb3bc26196bb83636713729899554c55dc"
+name = "sample_suite"
+artifact_sha256 = "c89d3097e0abe4fd5e3e37f679726f64d1f5408556124651831d4f35830030b0"
 
 [[case]]
 name = "sample/math/add"
