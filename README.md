@@ -78,15 +78,17 @@ to fail. Manifest errors always surface as red tests.
 
 In decreasing order of load-bearing:
 
-- **The contract grows only on the runner-export side.** The Component Model
-  has no compatible growth path for anything in return position (no variant
-  or record subtyping), but an exporter may compatibly export *more*. So the
-  `context` resource is the contract's only growth surface: new capabilities
-  (attachments, subtests, timing marks, ...) arrive as new `context`
-  methods, and old suites keep linking against newer providers. This is also
-  why `test-context` must ship in 0.1.0: a suite world's imports cannot be
-  optional, so a growth surface added later would be the semver-major event
-  it exists to avoid.
+- **The contract grows only on export sides.** The Component Model has no
+  compatible growth path for anything in return position (no variant or
+  record subtyping), but an exporter may compatibly export *more*. Growth
+  therefore has exactly two channels: runner-side, as new methods on the
+  `context` resource (old suites keep linking against newer providers);
+  and suite-side, as new optional interfaces alongside `tests` (old
+  runner cores ignore them; selection happens at composition time, since
+  imports can never be optional — see the `concurrent-tests` sketch in
+  the issues). This is also why `test-context` must ship in 0.1.0: a
+  suite world's imports cannot be optional, so a growth surface added
+  later would be the semver-major event it exists to avoid.
 - **Enumeration is unconditional and deterministic.** `all()` takes no
   arguments and yields every case, in suite order, identically on every
   call and instance; names are stable. Lockfiles pin case names *and*
@@ -143,11 +145,16 @@ executed case yields `pass | fail | skipped`; the scheduler adds
 `deselected` is reserved for user-driven subset selection, distinct from
 both.
 
-Sequencing: runners run cases sequentially per suite instance. Concurrent
-`run` calls are safe at the ABI level (a sync-lifted suite serializes on its
-instance lock) but not isolated — cases share the instance — so 0.1.0
-promises suites sequential execution. This is the loosest promise that can
-later be relaxed.
+Sequencing: runners run cases sequentially per suite instance — the
+undeclared default, not a permanent restriction. Concurrent `run` calls
+are safe at the ABI level (a sync-lifted suite serializes on its instance
+lock) but not isolated — cases share the instance — and a suite's
+concurrency tolerance is invisible to runners (lift style and backpressure
+use are encapsulated), so it must be declared: the planned declaration is
+a suite-side additive `concurrent-tests` interface (see issues), whose
+presence is structural and type-checked. Runners wanting throughput today
+replicate suite instances and partition cases (intra-instance concurrency
+is cooperative-only — no parallelism).
 
 To verify early (tracked in issues): the growth story assumes composition
 tooling resolves a `test-context@0.1.x` import against a newer

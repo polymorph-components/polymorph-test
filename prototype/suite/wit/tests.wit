@@ -13,11 +13,13 @@ package lann:component-test@0.1.0;
 
 /// The runner-provided sideband a test case can talk to while running.
 ///
-/// This interface is the contract's growth surface: the Component Model
-/// permits an exporter to add exports compatibly, so new capabilities
-/// (attachments, subtests, timing marks, ...) arrive as new methods here —
-/// old suites keep linking against newer providers. Nothing in return
-/// position anywhere else in this package can grow.
+/// This interface is the contract's runner-side growth surface: the
+/// Component Model permits an exporter to add exports compatibly, so new
+/// capabilities (attachments, subtests, timing marks, ...) arrive as new
+/// methods here — old suites keep linking against newer providers.
+/// (Suite-side growth happens as new optional interfaces alongside
+/// `tests`.) Nothing in return position anywhere in this package can
+/// grow.
 interface test-context {
     /// A per-run handle implemented by the runner side. Calls on it are
     /// sideband only: they never alter the verdict returned by `run`.
