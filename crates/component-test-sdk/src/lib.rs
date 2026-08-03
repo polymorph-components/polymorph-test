@@ -94,11 +94,35 @@ impl<Ctx> Registry<Ctx> {
 
 /// Register an `async fn(&Context) -> Verdict` as a case:
 /// `case!(registry, "group/name", ["mark", "!other"], my_async_fn);`
+///
+/// Also emits the case's inventory record (name + marks) into the
+/// `component-test:marks@0.1` custom section, enabling execution-free
+/// inventory/lockfile generation. Requires literal name/marks.
 #[macro_export]
 macro_rules! case {
-    ($registry:expr, $name:expr, [$($mark:expr),* $(,)?], $body:path) => {
+    ($registry:expr, $name:expr, [$($mark:expr),* $(,)?], $body:path) => {{
+        const _: () = {
+            const RECORD: &str = concat!($name $(, " ", $mark)*, "\n");
+            #[link_section = "component-test:marks@0.1"]
+            #[used]
+            static MARKS_RECORD: [u8; RECORD.len()] =
+                $crate::str_to_array::<{ RECORD.len() }>(RECORD);
+        };
         $registry.case($name, &[$($mark),*], move |ctx| Box::pin($body(ctx)))
-    };
+    }};
+}
+
+/// Const helper for [`case!`]'s section emission.
+#[doc(hidden)]
+pub const fn str_to_array<const N: usize>(s: &str) -> [u8; N] {
+    let b = s.as_bytes();
+    let mut out = [0u8; N];
+    let mut i = 0;
+    while i < N {
+        out[i] = b[i];
+        i += 1;
+    }
+    out
 }
 
 /// Verdict ergonomics.

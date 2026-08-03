@@ -2,5 +2,6 @@
 //! model (#26): WIT-shaped event records, JSONL edge encoding, and the
 //! stream→document fold (including the `not-reached` rule).
 
+pub mod inventory;
 pub mod lockfile;
 pub mod results;

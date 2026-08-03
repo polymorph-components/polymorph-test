@@ -4,6 +4,7 @@ members = [
     "crates/component-test-core",
     "crates/component-test-formats",
     "crates/component-test-sdk",
+    "crates/component-test-cli",
     "prototype/provider",
     "prototype/suite",
     "prototype/runner",

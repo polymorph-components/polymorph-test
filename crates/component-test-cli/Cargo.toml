@@ -1,0 +1,18 @@
+[package]
+name = "component-test-cli"
+description = "component-test: composition, execution, inventory, and aggregation tooling"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "component-test"
+path = "src/main.rs"
+
+[dependencies]
+component-test-core = { workspace = true }
+component-test-formats = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
