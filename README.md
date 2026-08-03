@@ -50,6 +50,34 @@ context provider (a small `wac` script re-exporting `tests`,
 harness's registration step; the suite-facing step just has two nodes
 inside it. Validated end-to-end in [`prototype/`](prototype/).
 
+## Case names
+
+Names are the *only* case identity — lockfile keys, resume and selection
+arguments, seed derivation, ratchet keys, results keys — so the grammar is
+normative:
+
+```
+name    = segment *( "/" segment )          ; 1–256 bytes total
+segment = 1*64 of [a-z 0-9 - _ .]           ; a segment is never "." or ".."
+```
+
+- **Byte equality is the only equality.** Lowercase ASCII only: no Unicode
+  normalization questions, no case-collisions on case-insensitive
+  filesystems. SDKs normalize source-language names at declaration time;
+  the lockfile reviews the result.
+- The charset is simultaneously URL-path-safe, shell-safe, filesystem-safe
+  (with `.`/`..` segments forbidden at the grammar), and free of glob
+  metacharacters, so selection patterns cannot collide with literal names.
+  Parameters encoded into ids (`16384`, `0x1a2b`, `v1.2`) fit; digit-first
+  segments are legal.
+- **Duplicate names are a hard error** — no go-style `#01`
+  auto-disambiguation, which makes identity depend on registration order.
+  Enforced at SDK build time, by aggregator validation (`run-error`), and
+  by lockfile review. SDK manglers must re-check uniqueness *after*
+  mangling, which can merge distinct source names.
+- Hierarchy is prefix-grouping only; depth is unconstrained. Interop
+  emitters map prefix → JUnit classname (`/` → `.`, documented-lossy).
+
 ## Feature marks
 
 Capability gating lives *outside* the WIT contract, as static metadata
