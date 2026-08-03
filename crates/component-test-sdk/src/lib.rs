@@ -77,29 +77,29 @@ pub mod prelude {
     };
 }
 
-/// Boxed case body: borrows the (bindings-generated) context for the
-/// duration of the run.
-pub type CaseFn<Ctx> = Box<dyn for<'a> Fn(&'a Ctx) -> Pin<Box<dyn Future<Output = Verdict> + 'a>>>;
+/// Boxed case body: borrows the context for the duration of the run.
+pub type CaseFn =
+    Box<dyn for<'a> Fn(&'a TestContext) -> Pin<Box<dyn Future<Output = Verdict> + 'a>>>;
 
 /// One registered case (the registry's entry type; generator-produced
 /// cases are [`GeneratedCase`], prelude-aliased to `Case`).
-pub struct RegisteredCase<Ctx> {
+pub struct RegisteredCase {
     pub name: CaseName,
     pub tags: Tags,
-    pub run: CaseFn<Ctx>,
+    pub run: CaseFn,
 }
 
 /// A case produced by a `#[case_generator]`: a leaf name (one or more
 /// segments, appended under the row's prefix) plus the body.
-pub struct GeneratedCase<Ctx> {
-    leaf: String,
-    run: CaseFn<Ctx>,
+pub struct GeneratedCase {
+    leaf: std::borrow::Cow<'static, str>,
+    run: CaseFn,
 }
 
-impl<Ctx> GeneratedCase<Ctx> {
-    pub fn new<F>(leaf: impl Into<String>, run: F) -> Self
+impl GeneratedCase {
+    pub fn new<F>(leaf: impl Into<std::borrow::Cow<'static, str>>, run: F) -> Self
     where
-        F: for<'a> Fn(&'a Ctx) -> Pin<Box<dyn Future<Output = Verdict> + 'a>> + 'static,
+        F: for<'a> Fn(&'a TestContext) -> Pin<Box<dyn Future<Output = Verdict> + 'a>> + 'static,
     {
         GeneratedCase {
             leaf: leaf.into(),
@@ -109,12 +109,12 @@ impl<Ctx> GeneratedCase<Ctx> {
 }
 
 /// Ordered case registry with grammar + duplicate enforcement.
-pub struct Registry<Ctx> {
-    cases: Vec<RegisteredCase<Ctx>>,
+pub struct Registry {
+    cases: Vec<RegisteredCase>,
     names: BTreeSet<String>,
 }
 
-impl<Ctx> Default for Registry<Ctx> {
+impl Default for Registry {
     fn default() -> Self {
         Registry {
             cases: Vec::new(),
@@ -123,7 +123,7 @@ impl<Ctx> Default for Registry<Ctx> {
     }
 }
 
-impl<Ctx> Registry<Ctx> {
+impl Registry {
     pub fn new() -> Self {
         Self::default()
     }
@@ -134,7 +134,7 @@ impl<Ctx> Registry<Ctx> {
     /// [`case!`](crate::case) to register plain `async fn`s.
     pub fn case<F>(&mut self, name: &str, tags: &[&str], body: F) -> &mut Self
     where
-        F: for<'a> Fn(&'a Ctx) -> Pin<Box<dyn Future<Output = Verdict> + 'a>> + 'static,
+        F: for<'a> Fn(&'a TestContext) -> Pin<Box<dyn Future<Output = Verdict> + 'a>> + 'static,
     {
         let name =
             CaseName::parse(name).unwrap_or_else(|e| panic!("invalid case name `{name}`: {e}"));
@@ -155,7 +155,7 @@ impl<Ctx> Registry<Ctx> {
         self
     }
 
-    pub fn cases(&self) -> &[RegisteredCase<Ctx>] {
+    pub fn cases(&self) -> &[RegisteredCase] {
         &self.cases
     }
 
@@ -167,13 +167,13 @@ impl<Ctx> Registry<Ctx> {
         self.cases.is_empty()
     }
 
-    pub fn get(&self, index: usize) -> Option<&RegisteredCase<Ctx>> {
+    pub fn get(&self, index: usize) -> Option<&RegisteredCase> {
         self.cases.get(index)
     }
 
     /// Register a generated case under `prefix` with the row's `tags`.
     /// Panics on grammar violations or duplicates — harness bugs.
-    pub fn generated(&mut self, prefix: &str, tags: &[&str], case: GeneratedCase<Ctx>) {
+    pub fn generated(&mut self, prefix: &str, tags: &[&str], case: GeneratedCase) {
         let name = format!("{prefix}/{}", case.leaf);
         let name = CaseName::parse(&name)
             .unwrap_or_else(|e| panic!("invalid generated case name `{name}`: {e}"));
@@ -298,12 +298,10 @@ macro_rules! check {
 mod tests {
     use super::*;
 
-    struct FakeCtx;
-
     #[test]
     fn registry_registers_and_orders() {
-        let mut reg: Registry<FakeCtx> = Registry::new();
-        async fn ok(_: &FakeCtx) -> Verdict {
+        let mut reg: Registry = Registry::new();
+        async fn ok(_: &crate::TestContext) -> Verdict {
             Ok(())
         }
         crate::case!(reg, "a/x", [], ok);
@@ -316,8 +314,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "duplicate case name")]
     fn registry_rejects_duplicates() {
-        let mut reg: Registry<FakeCtx> = Registry::new();
-        async fn ok(_: &FakeCtx) -> Verdict {
+        let mut reg: Registry = Registry::new();
+        async fn ok(_: &crate::TestContext) -> Verdict {
             Ok(())
         }
         crate::case!(reg, "a/x", [], ok);
@@ -330,8 +328,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "invalid case name")]
     fn registry_rejects_bad_names_at_runtime() {
-        let mut reg: Registry<FakeCtx> = Registry::new();
-        async fn ok(_: &FakeCtx) -> Verdict {
+        let mut reg: Registry = Registry::new();
+        async fn ok(_: &crate::TestContext) -> Verdict {
             Ok(())
         }
         reg.case("Bad/Name", &[], move |ctx| Box::pin(ok(ctx)));

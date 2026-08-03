@@ -56,7 +56,7 @@ mod fixture {
 
     /// Generated row: leaves computed from data under a static prefix.
     #[case_generator(prefix = "gen")]
-    fn generated_cases() -> impl Iterator<Item = Case<TestContext>> {
+    fn generated_cases() -> impl Iterator<Item = Case> {
         (1u32..=2).map(|n| {
             gen_case!(format!("tc{n}"), |ctx| async move {
                 ctx.diag(format!("generated case {n}")).await;

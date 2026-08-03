@@ -230,7 +230,7 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
 
         #(#records)*
 
-        fn __ct_registry() -> ::component_test_sdk::Registry<TestContext> {
+        fn __ct_registry() -> ::component_test_sdk::Registry {
             let mut registry = ::component_test_sdk::Registry::new();
             #(#registrations)*
             #(#gen_registrations)*
@@ -238,12 +238,12 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
         }
 
         ::std::thread_local! {
-            static __CT_REGISTRY: ::std::cell::OnceCell<::component_test_sdk::Registry<TestContext>> =
+            static __CT_REGISTRY: ::std::cell::OnceCell<::component_test_sdk::Registry> =
                 const { ::std::cell::OnceCell::new() };
         }
 
         fn __ct_with_registry<R>(
-            f: impl FnOnce(&::component_test_sdk::Registry<TestContext>) -> R,
+            f: impl FnOnce(&::component_test_sdk::Registry) -> R,
         ) -> R {
             __CT_REGISTRY.with(|cell| f(cell.get_or_init(__ct_registry)))
         }
