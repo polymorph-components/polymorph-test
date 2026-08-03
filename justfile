@@ -93,17 +93,10 @@ lock-update: build
 
 # --- WIT ---------------------------------------------------------------
 
-# Re-sync vendored WIT copies from wit/tests.wit and validate.
-wit-sync:
-    cp wit/tests.wit components/provider/wit/deps/component-test/
-    cp wit/tests.wit components/runner-cli/wit/deps/component-test/
-    cp wit/tests.wit components/sample-suite/wit/tests.wit
-    cp wit/tests.wit components/fixture-suite/wit/tests.wit
-    cp components/provider/wit/provider.wit components/runner-cli/wit/deps/provider/
-    wasm-tools component wit wit/ > /dev/null
-    @echo "WIT copies synced and validated"
+# Component WIT dirs are symlinks into the canonical copies (wit/ and
+# components/provider/wit/provider.wit); there is nothing to sync.
 
-# Validate all WIT trees without syncing.
+# Validate all WIT trees.
 wit-check:
     wasm-tools component wit wit/ > /dev/null
     wasm-tools component wit components/provider/wit > /dev/null

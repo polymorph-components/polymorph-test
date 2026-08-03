@@ -61,11 +61,12 @@ examples/compose/     wac composition walkthrough (bundle-then-plug)
 docs/findings.md      toolchain findings log
 ```
 
-**Gotcha: WIT copies.** `components/*/wit/` contain vendored copies of
-`wit/tests.wit` (and `components/provider/wit/provider.wit` is the
-canonical provider WIT, vendored into `components/runner-cli/wit/deps/`).
-After editing any WIT, re-sync the copies and re-validate: `just
-wit-sync`.
+**WIT deps are symlinks.** `components/*/wit` trees link back to the
+canonical copies (`wit/` for the contract;
+`components/provider/wit/provider.wit` for the provider WIT), so edits
+propagate automatically — validate with `just wit-check`. Don't replace
+the links with copies; and note symlinks require `core.symlinks`
+support on Windows checkouts.
 
 ## Toolchain
 
