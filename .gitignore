@@ -1,3 +1,4 @@
-prototype/target/
-prototype/*.wasm
-prototype/Cargo.lock
+target/
+*.wasm
+!*.core.wasm
+Cargo.lock
