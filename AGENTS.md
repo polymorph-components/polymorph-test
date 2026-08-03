@@ -64,15 +64,8 @@ docs/findings.md      toolchain findings log
 **Gotcha: WIT copies.** `components/*/wit/` contain vendored copies of
 `wit/tests.wit` (and `components/provider/wit/provider.wit` is the
 canonical provider WIT, vendored into `components/runner-cli/wit/deps/`).
-After editing any WIT, re-sync the copies and re-validate:
-
-```sh
-for d in components/provider/wit/deps/component-test \
-         components/runner-cli/wit/deps/component-test; do cp wit/tests.wit $d/; done
-cp wit/tests.wit components/sample-suite/wit/tests.wit
-cp wit/tests.wit components/fixture-suite/wit/tests.wit
-wasm-tools component wit wit/
-```
+After editing any WIT, re-sync the copies and re-validate: `just
+wit-sync`.
 
 ## Toolchain
 
@@ -83,6 +76,11 @@ target `wasm32-wasip2`. Known sharp edges are catalogued in
 probably finding #5, #6, or #13.
 
 ## Build & verify
+
+Recipes live in the `justfile` (`just` lists them): `just test` (host
+crates), `just build` (components), `just all` (the full matrix below),
+`just lock-check` / `just lock-update`, `just wit-sync` / `just
+wit-check`. The underlying commands, for when you need them directly:
 
 Host crates (fast, run this always):
 
