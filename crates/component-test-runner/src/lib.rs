@@ -214,7 +214,20 @@ impl<D: RunnerView + 'static> Runner<D> {
         let mut store = self.new_store(live_print)?;
         let instance = self.instantiate(&mut store).await?;
         let funcs = TestsFuncs::new(&mut store, &instance)?;
+        let t = std::time::Instant::now();
         let cases = funcs.all(&mut store).await?;
+        let first = t.elapsed();
+        if std::env::var("COMPONENT_TEST_PROFILE").is_ok() {
+            let t = std::time::Instant::now();
+            let cases2 = funcs.all(&mut store).await?;
+            let second = t.elapsed();
+            eprintln!(
+                "profile all#1={}us all#2={}us ({} handles; #2 = lift-only, registry cached)",
+                first.as_micros(),
+                second.as_micros(),
+                cases2.len()
+            );
+        }
         Ok(Session {
             store,
             funcs,
