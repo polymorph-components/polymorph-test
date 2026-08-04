@@ -1,0 +1,5 @@
+error: module `x__y` maps to non-leaf segment `x--y`, which is not a WIT label (empty word (leading/trailing/double `-`))
+ --> tests/ui/fail/bad_module_segment.rs:6:9
+  |
+6 |     mod x__y {
+  |         ^^^^

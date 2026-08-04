@@ -380,6 +380,21 @@ fn walk_items(
                     merge_scope(&mut scope, tags, m.span())?;
                 }
                 let seg = ident_to_segment(&m.ident.to_string());
+                // Non-leaf segments must be WIT labels; check eagerly
+                // at the module ident so the error points at the
+                // offending module, not at whichever case fn happens
+                // to inherit the bad prefix (validate() re-checks the
+                // whole joined name as a backstop).
+                if let Some(reason) = component_test_core::name::is_wit_label(&seg) {
+                    return Err(Error::new(
+                        m.ident.span(),
+                        format!(
+                            "module `{}` maps to non-leaf segment `{seg}`, which is not a \
+                             WIT label ({reason})",
+                            m.ident
+                        ),
+                    ));
+                }
                 let child_prefix = join_name(name_prefix, &seg);
                 mod_path.push(m.ident.clone());
                 if let Some((_, children)) = m.content.as_mut() {

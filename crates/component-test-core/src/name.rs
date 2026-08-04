@@ -49,7 +49,11 @@ impl fmt::Display for NameError {
             }
             NameError::DotSegment(s) => write!(f, "segment `{s}` is forbidden"),
             NameError::BadChar { segment, ch } => {
-                write!(f, "segment `{segment}` contains forbidden character {ch:?}")
+                write!(
+                    f,
+                    "segment `{segment}` contains forbidden character {ch:?} \
+                     (case names are lowercase: 1–64 of [a-z0-9._-] per segment)"
+                )
             }
             NameError::NonLabelPrefix { segment, reason } => write!(
                 f,
