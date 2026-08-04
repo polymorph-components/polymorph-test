@@ -324,6 +324,29 @@ impl<D: RunnerView + 'static> Runner<D> {
         cases_per_instance: usize,
         jobs: usize,
     ) -> Result<Summary> {
+        self.run_suite_full(
+            suite_name,
+            "wasmtime/host",
+            mode,
+            missing_features,
+            cases_per_instance,
+            jobs,
+        )
+        .await
+    }
+
+    /// Full-options variant; `target` stamps the results envelope (the
+    /// manifest key for aggregation).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_suite_full(
+        &self,
+        suite_name: &str,
+        target: &str,
+        mode: OutputMode,
+        missing_features: &[String],
+        cases_per_instance: usize,
+        jobs: usize,
+    ) -> Result<Summary> {
         let human = matches!(mode, OutputMode::Human);
 
         // Static inventory (tags) from the suite artifact, if present.
@@ -346,7 +369,7 @@ impl<D: RunnerView + 'static> Runner<D> {
         if !human {
             let envelope = Envelope {
                 version: RESULTS_VERSION.into(),
-                target: "wasmtime/host".into(),
+                target: target.into(),
                 suite: SuiteInfo {
                     name: suite_name.into(),
                     ..Default::default()

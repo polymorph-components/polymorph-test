@@ -49,9 +49,10 @@ impl Aggregate {
 
     /// Any fail or not-reached status across all targets.
     pub fn has_failures(&self) -> bool {
-        self.results.values().flat_map(|m| m.values()).any(|r| {
-            matches!(r.status, Status::Fail | Status::NotReached)
-        })
+        self.results
+            .values()
+            .flat_map(|m| m.values())
+            .any(|r| matches!(r.status, Status::Fail | Status::NotReached))
     }
 }
 
@@ -86,10 +87,16 @@ pub fn aggregate(
             ));
         }
     }
-    for feature in manifest.features.keys() {
+    for (feature, decl) in &manifest.features {
+        // Structural features gate suites at composition time and never
+        // appear as case tags (README: "structural features gate
+        // suites, not cases") — only gated features must be referenced.
+        if decl.kind == crate::manifest::FeatureKind::Structural {
+            continue;
+        }
         if !lock_features.contains(feature) {
             errors.push(format!(
-                "manifest classifies feature `{feature}`, which no lockfile tag \
+                "manifest classifies gated feature `{feature}`, which no lockfile tag \
                  references (retired feature not fully deleted?)"
             ));
         }
@@ -131,9 +138,7 @@ pub fn aggregate(
             ));
         }
 
-        if let Err(e) =
-            lockfile.check_coverage(doc.results.iter().map(|r| r.case.as_str()))
-        {
+        if let Err(e) = lockfile.check_coverage(doc.results.iter().map(|r| r.case.as_str())) {
             errors.push(format!("target `{target}`: coverage: {e}"));
         }
 
@@ -151,7 +156,9 @@ pub fn aggregate(
                 .copied()
                 .or_else(|| lockfile.prefix_of(&r.case).map(|g| &g.tags));
             let Some(tags) = tags else { continue }; // coverage already flagged
-            let Ok(tags) = Tags::new(tags.clone()) else { continue };
+            let Ok(tags) = Tags::new(tags.clone()) else {
+                continue;
+            };
             let applies = tags.applies(missing);
             match (applies, r.status) {
                 (false, Status::NotApplicable) | (false, Status::NotReached) => {}
@@ -316,8 +323,9 @@ mod tests {
             ],
         );
         assert!(
-            agg.errors.iter().any(|e| e.contains("mystery")
-                && e.contains("not declared")),
+            agg.errors
+                .iter()
+                .any(|e| e.contains("mystery") && e.contains("not declared")),
             "{:?}",
             agg.errors
         );
@@ -331,7 +339,9 @@ mod tests {
             &[("native".into(), native_doc())],
         );
         assert!(
-            agg.errors.iter().any(|e| e.contains("`sim`") && e.contains("no results")),
+            agg.errors
+                .iter()
+                .any(|e| e.contains("`sim`") && e.contains("no results")),
             "{:?}",
             agg.errors
         );
@@ -440,7 +450,11 @@ mod tests {
         // Enumerate the 2^3 - 2 partial states: for each surface, keep
         // the stale version or the retired one.
         for (del_a, del_b, del_c) in itertools() {
-            let lock = if del_a { &retired_lock } else { &corpus_lock2() };
+            let lock = if del_a {
+                &retired_lock
+            } else {
+                &corpus_lock2()
+            };
             let mani = if del_b && del_c {
                 retired_manifest.clone()
             } else {
@@ -451,7 +465,11 @@ mod tests {
                 .map(|t| {
                     (
                         t.to_string(),
-                        if del_a { retired_docs(t) } else { stale_docs(t) },
+                        if del_a {
+                            retired_docs(t)
+                        } else {
+                            stale_docs(t)
+                        },
                     )
                 })
                 .collect();

@@ -10,8 +10,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::aggregate::Aggregate;
 use crate::results::Status;
 
-fn group_of(case: &str) -> &str {
-    match case.rfind('/') {
+/// Group cases at the shallowest prefix whose members are uniform per
+/// target: start from top-level prefixes and only split a group when
+/// its statuses disagree somewhere.
+fn top_group(case: &str) -> &str {
+    match case.find('/') {
         Some(i) => &case[..i],
         None => case,
     }
@@ -36,9 +39,15 @@ pub fn render(agg: &Aggregate) -> String {
         .values()
         .flat_map(|m| m.keys().map(String::as_str))
         .collect();
-    let mut groups: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    // Group at the top-level prefix: uniform groups render one word,
+    // mixed groups render counts (specifics live in the Failures
+    // section). Keeps the matrix at-a-glance for 10k-case corpora.
+    let mut groups: BTreeMap<String, Vec<&str>> = BTreeMap::new();
     for case in &cases {
-        groups.entry(group_of(case)).or_default().push(case);
+        groups
+            .entry(top_group(case).to_string())
+            .or_default()
+            .push(case);
     }
 
     let mut md = String::new();
@@ -78,17 +87,13 @@ pub fn render(agg: &Aggregate) -> String {
             .map(|target| {
                 let statuses: BTreeSet<&'static str> = members
                     .iter()
-                    .filter_map(|case| {
-                        agg.results.get(target).and_then(|m| m.get(*case))
-                    })
+                    .filter_map(|case| agg.results.get(target).and_then(|m| m.get(*case)))
                     .map(|r| word(r.status))
                     .collect();
                 match statuses.len() {
                     1 => members
                         .iter()
-                        .find_map(|case| {
-                            agg.results.get(target).and_then(|m| m.get(*case))
-                        })
+                        .find_map(|case| agg.results.get(target).and_then(|m| m.get(*case)))
                         .map(|r| r.status),
                     _ => None,
                 }
@@ -137,7 +142,9 @@ pub fn render(agg: &Aggregate) -> String {
     md.push_str("## Failures\n\n");
     let mut any = false;
     for target in &agg.targets {
-        let Some(results) = agg.results.get(target) else { continue };
+        let Some(results) = agg.results.get(target) else {
+            continue;
+        };
         for r in results.values() {
             if !matches!(r.status, Status::Fail | Status::NotReached) {
                 continue;
@@ -177,7 +184,10 @@ pub fn render(agg: &Aggregate) -> String {
             .map(|(w, n)| format!("{n} {w}"))
             .collect::<Vec<_>>()
             .join(", ");
-        md.push_str(&format!("- `{target}`: {parts} ({} total)\n", results.len()));
+        md.push_str(&format!(
+            "- `{target}`: {parts} ({} total)\n",
+            results.len()
+        ));
     }
     md
 }
@@ -216,11 +226,7 @@ mod tests {
             ]
             .into(),
         );
-        let mut fail = result(
-            "aes-gcm/wycheproof/tc2",
-            Status::Fail,
-            Some("tag mismatch"),
-        );
+        let mut fail = result("aes-gcm/wycheproof/tc2", Status::Fail, Some("tag mismatch"));
         fail.1.diagnostics.push("expected 0xab, got 0xcd".into());
         results.insert(
             "sim".into(),
@@ -243,7 +249,7 @@ mod tests {
 
 | Case | native | sim |
 | --- | --- | --- |
-| aes-gcm/wycheproof (2 cases) | pass | 1 FAIL, 1 pass |
+| aes-gcm (2 cases) | pass | 1 FAIL, 1 pass |
 | probe/decline | N/A | pass |
 
 ## Failures

@@ -203,11 +203,14 @@ fn aggregate_cmd(args: &[String]) -> anyhow::Result<()> {
             .with_context(|| format!("reading {manifest_path}"))?,
     )?;
 
-    let selected: Vec<String> = lf.case.iter().map(|c| c.name.as_str().to_string()).collect();
+    let selected: Vec<String> = lf
+        .case
+        .iter()
+        .map(|c| c.name.as_str().to_string())
+        .collect();
     let mut docs = Vec::new();
     for (target, path) in &result_args {
-        let stream =
-            std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
+        let stream = std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
         let doc = results::fold_jsonl(&stream, &selected)
             .with_context(|| format!("folding results for target `{target}` ({path})"))?;
         docs.push((target.clone(), doc));
