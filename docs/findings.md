@@ -91,3 +91,16 @@ Rust `wasm32-wasip2` target.
     strips custom sections** ❌ — generate lockfiles from the suite
     artifact pre-composition (where the lockfile's artifact hash binds
     anyway).
+
+## Build reproducibility
+
+15. **Suite wasm builds are not reproducible across checkouts**: rustc
+    embeds absolute source paths (panic locations, debug info) in the
+    artifact, so a source-identical build on another machine (or CI)
+    yields a different sha256. `--remap-path-prefix`/`trim-paths` can
+    mitigate but push the burden onto every suite's build config —
+    ruled instead (#44) that artifact hashes are provenance, never a
+    cross-environment gate: `lock --check` compares inventory,
+    `aggregate` requires no lockfile↔envelope hash equality (only
+    warning on cross-target disagreement within one run, which is
+    reproducibility-independent).

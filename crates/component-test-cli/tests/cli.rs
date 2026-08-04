@@ -420,7 +420,9 @@ fn aggregate_applicability_drift_fails() {
 }
 
 #[test]
-fn aggregate_artifact_hash_mismatch_fails() {
+fn aggregate_artifact_hashes_are_provenance() {
+    // Lockfile hash differing from the envelopes' is expected-normal
+    // (non-reproducible builds; #44): tolerated, no error, no warning.
     let lock = tmpfile(
         "agg-hash.lock",
         &AGG_LOCK.replace(
@@ -434,24 +436,45 @@ fn aggregate_artifact_hash_mismatch_fails() {
         r#""suite":{"name":"t","artifact-sha256":"bb22"}"#,
     );
     let native_path = tmpfile("agg-hash-native.jsonl", &native);
-    let sim_path = tmpfile("agg-hash-sim.jsonl", &sim_ok());
-    let out = run(
-        &[
-            "aggregate",
-            "--lock",
-            lock.to_str().unwrap(),
-            "--manifest",
-            manifest.to_str().unwrap(),
-            "--results",
-            &format!("native={}", native_path.display()),
-            "--results",
-            &format!("sim={}", sim_path.display()),
-        ],
-        None,
+    let sim = sim_ok().replace(
+        r#""suite":{"name":"t"}"#,
+        r#""suite":{"name":"t","artifact-sha256":"bb22"}"#,
     );
-    assert_eq!(out.code, 1);
-    assert!(out.stderr.contains("sha256"), "{}", out.stderr);
-    assert!(out.stderr.contains("bb22"), "{}", out.stderr);
+    let sim_path = tmpfile("agg-hash-sim.jsonl", &sim);
+    let args_for = |native: &std::path::Path, sim: &std::path::Path| {
+        [
+            "aggregate".to_string(),
+            "--lock".into(),
+            lock.to_str().unwrap().into(),
+            "--manifest".into(),
+            manifest.to_str().unwrap().into(),
+            "--results".into(),
+            format!("native={}", native.display()),
+            "--results".into(),
+            format!("sim={}", sim.display()),
+        ]
+    };
+    let args = args_for(&native_path, &sim_path);
+    let out = run(&args.iter().map(|s| s.as_str()).collect::<Vec<_>>(), None);
+    assert_eq!(out.code, 0, "{}\n{}", out.stdout, out.stderr);
+    assert!(!out.stderr.contains("warning"), "{}", out.stderr);
+
+    // Targets disagreeing with EACH OTHER (same aggregation, mixed
+    // builds) is the reproducibility-independent smell: warning only.
+    let sim_other = sim_ok().replace(
+        r#""suite":{"name":"t"}"#,
+        r#""suite":{"name":"t","artifact-sha256":"cc33"}"#,
+    );
+    let sim_other_path = tmpfile("agg-hash-sim2.jsonl", &sim_other);
+    let args = args_for(&native_path, &sim_other_path);
+    let out = run(&args.iter().map(|s| s.as_str()).collect::<Vec<_>>(), None);
+    assert_eq!(out.code, 0, "{}\n{}", out.stdout, out.stderr);
+    assert!(out.stderr.contains("mixed builds"), "{}", out.stderr);
+    assert!(
+        out.stderr.contains("bb22") && out.stderr.contains("cc33"),
+        "{}",
+        out.stderr
+    );
 }
 
 #[test]

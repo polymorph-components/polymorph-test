@@ -39,7 +39,11 @@ pub struct Envelope {
 pub struct SuiteInfo {
     pub name: String,
     /// sha256 of the suite component the results were produced from,
-    /// hex. Cross-checked against the lockfile by `aggregate`.
+    /// hex. Provenance, not identity: builds are not reproducible
+    /// across environments, so consumers must not require equality
+    /// with a hash recorded elsewhere (e.g. a committed lockfile's).
+    /// `aggregate` uses it only for the reproducibility-independent
+    /// check that targets aggregated together ran the same build.
     #[serde(
         default,
         rename = "artifact-sha256",

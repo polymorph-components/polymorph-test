@@ -45,8 +45,14 @@ pub struct GeneratedEntry {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct SuiteRef {
     pub name: String,
-    /// sha256 of the suite component artifact, hex. Optional while a
-    /// suite is under active development; required to publish.
+    /// sha256 of the suite component artifact this inventory was
+    /// generated from, hex. Provenance, not identity: suite builds are
+    /// not reproducible across environments, so consumers MUST NOT
+    /// require this to equal a hash computed elsewhere (a lockfile
+    /// committed from one machine will not match a source-identical CI
+    /// build). Opportunistic uses — cache keys, same-machine staleness
+    /// detection — are fine. The authoritative binding between results
+    /// and a lockfile is the inventory itself (names + tags).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact_sha256: Option<String>,
 }

@@ -139,10 +139,12 @@ before committing anything cross-cutting):
      | cargo run -q -p component-test-cli -- fold components/sample-suite/tests.lock
    ```
 
-Lockfiles (`components/*/tests.lock`) are generated artifacts bound to
-the suite wasm by sha256: regenerate with `component-test lock ... -o`
-after any suite change and commit the diff (the diff *is* the review
-surface). Never hand-edit.
+Lockfiles (`components/*/tests.lock`) are generated artifacts:
+regenerate with `component-test lock ... -o` after any suite change and
+commit the diff (the diff *is* the review surface). Never hand-edit.
+The recorded `artifact-sha256` is provenance only — builds are not
+reproducible across environments, so nothing may require it to match a
+hash computed elsewhere (#44); the inventory is the binding.
 
 ## Conventions
 

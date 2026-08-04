@@ -138,6 +138,9 @@ pub fn aggregate(
 
     let mut results: BTreeMap<String, BTreeMap<String, CaseResult>> = BTreeMap::new();
     let mut seen_targets = BTreeSet::new();
+    // (target, envelope artifact sha256) for the cross-target agreement
+    // warning — collected during the per-target pass, judged after it.
+    let mut envelope_hashes: Vec<(String, String)> = Vec::new();
 
     // Applicability lookup, built once (not per target — the corpus
     // scale is thousands of cases × several targets): case name →
@@ -178,23 +181,16 @@ pub fn aggregate(
                 doc.envelope.target
             ));
         }
-        // Artifact binding: results produced from a different suite
-        // build than the lockfile describes are exactly the drift the
-        // sha256 exists to refuse (same names, different bodies).
-        // Envelopes without a hash (foreign runners, older streams)
-        // are tolerated.
-        if let (Some(reported), Some(expected)) = (
-            doc.envelope.suite.artifact_sha256.as_deref(),
-            lockfile.suite.artifact_sha256.as_deref(),
-        ) {
-            if reported != expected {
-                errors.push(format!(
-                    "target `{target}`: results were produced from suite artifact \
-                     sha256 {reported}, but the lockfile records {expected} \
-                     (stale lockfile or wrong suite build — regenerate with \
-                     `component-test lock`)"
-                ));
-            }
+        // Artifact hashes are provenance, not identity: suite builds
+        // are not reproducible across environments (compilers embed
+        // source paths etc.), so envelope-vs-lockfile hash equality is
+        // deliberately NOT required — the inventory checks below are
+        // the authoritative binding. What the hashes do support is the
+        // reproducibility-independent same-pipeline check: every target
+        // in one aggregation should have run the same build (see the
+        // cross-target agreement warning after this loop).
+        if let Some(reported) = doc.envelope.suite.artifact_sha256.as_deref() {
+            envelope_hashes.push((target.clone(), reported.to_string()));
         }
         if doc.envelope.suite.name != lockfile.suite.name {
             warnings.push(format!(
@@ -320,6 +316,26 @@ pub fn aggregate(
         }
     }
 
+    // Cross-target artifact agreement (opportunistic, warning only):
+    // targets aggregated together normally ran the same suite build, so
+    // envelopes that carry hashes should agree with each other. Unlike
+    // envelope-vs-lockfile equality this needs no build reproducibility
+    // — the artifacts came from one pipeline. Disagreement usually
+    // means the pipeline mixed builds (stale artifact on one target).
+    {
+        let distinct: BTreeSet<&str> = envelope_hashes.iter().map(|(_, h)| h.as_str()).collect();
+        if distinct.len() > 1 {
+            let detail: Vec<String> = envelope_hashes
+                .iter()
+                .map(|(t, h)| format!("{t}={h}"))
+                .collect();
+            warnings.push(format!(
+                "targets report differing suite artifact hashes (mixed builds?): {}",
+                detail.join(", ")
+            ));
+        }
+    }
+
     Aggregate {
         targets: manifest.targets.keys().cloned().collect(),
         results,
@@ -441,48 +457,55 @@ mod tests {
     }
 
     #[test]
-    fn artifact_hash_binding() {
+    fn artifact_hashes_are_provenance_not_identity() {
+        // Suite builds are not reproducible across environments, so a
+        // lockfile hash differing from every envelope hash is the
+        // expected-normal state (committed lock, CI-built artifact):
+        // neither an error nor a warning.
         let mut lock = corpus_lock();
         lock.suite.artifact_sha256 = Some("aa11".into());
-
-        // Matching hashes: clean.
-        let mut matching = native_doc();
-        matching.envelope.suite.artifact_sha256 = Some("aa11".into());
-        let mut sim_matching = sim_doc();
-        sim_matching.envelope.suite.artifact_sha256 = Some("aa11".into());
+        let mut native = native_doc();
+        native.envelope.suite.artifact_sha256 = Some("bb22".into());
+        let mut sim = sim_doc();
+        sim.envelope.suite.artifact_sha256 = Some("bb22".into());
         let agg = aggregate(
             &lock,
             &manifest(MANIFEST),
-            &[
-                ("native".into(), matching),
-                ("sim".into(), sim_matching.clone()),
-            ],
+            &[("native".into(), native), ("sim".into(), sim)],
         );
         assert!(agg.errors.is_empty(), "{:?}", agg.errors);
+        assert!(agg.warnings.is_empty(), "{:?}", agg.warnings);
 
-        // Mismatch: results from a different suite build are refused.
-        let mut stale = native_doc();
-        stale.envelope.suite.artifact_sha256 = Some("bb22".into());
+        // Cross-target disagreement IS surfaced (warning): targets in
+        // one aggregation ran one pipeline, so differing hashes mean
+        // mixed builds — a check that needs no reproducibility.
+        let mut native = native_doc();
+        native.envelope.suite.artifact_sha256 = Some("bb22".into());
+        let mut sim = sim_doc();
+        sim.envelope.suite.artifact_sha256 = Some("cc33".into());
         let agg = aggregate(
             &lock,
             &manifest(MANIFEST),
-            &[("native".into(), stale), ("sim".into(), sim_matching)],
+            &[("native".into(), native), ("sim".into(), sim)],
         );
+        assert!(agg.errors.is_empty(), "{:?}", agg.errors);
         assert!(
-            agg.errors
+            agg.warnings
                 .iter()
-                .any(|e| e.contains("sha256") && e.contains("bb22") && e.contains("aa11")),
+                .any(|w| w.contains("mixed builds") && w.contains("bb22") && w.contains("cc33")),
             "{:?}",
-            agg.errors
+            agg.warnings
         );
 
-        // Envelopes without a hash are tolerated (foreign runners).
+        // Envelopes without a hash are tolerated (foreign runners) and
+        // don't count toward agreement.
         let agg = aggregate(
             &lock,
             &manifest(MANIFEST),
             &[("native".into(), native_doc()), ("sim".into(), sim_doc())],
         );
         assert!(agg.errors.is_empty(), "{:?}", agg.errors);
+        assert!(agg.warnings.is_empty(), "{:?}", agg.warnings);
     }
 
     #[test]
