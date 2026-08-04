@@ -503,7 +503,7 @@ mod tests {
 
     /// The #30 retirement acceptance test: a corpus with a tagged pair
     /// + manifest entry. Every partial-deletion state must fail
-    /// validation; the complete deletion must pass.
+    ///   validation; the complete deletion must pass.
     #[test]
     fn feature_retirement() {
         // Retirement removes, in one commit: (A) the tagged cases from
