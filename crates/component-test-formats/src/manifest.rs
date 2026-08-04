@@ -36,7 +36,12 @@ pub struct Feature {
     pub kind: FeatureKind,
 }
 
+/// How a feature gates the suite surface.
+///
+/// `#[non_exhaustive]`: manifest vocabulary evolves additively, so
+/// downstream matches must carry a wildcard arm.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 #[serde(rename_all = "kebab-case")]
 pub enum FeatureKind {
     /// `@unstable`-gated WIT surface: the guest imports it, so a target

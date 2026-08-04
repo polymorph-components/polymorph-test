@@ -35,6 +35,12 @@ struct Shared {
     /// (black hole) and after close/hangup.
     writer: Option<StreamWriter<String>>,
     observed: bool,
+    /// Set by `Context::drop`: the stream is closed for good. Without
+    /// this, a write completing after the drop couldn't tell "writer
+    /// absent because I took it" from "absent because the context was
+    /// dropped", and would resurrect a closed stream (wedging a
+    /// post-run drain that waits for end-of-stream).
+    closed: bool,
 }
 
 struct Context {
@@ -44,7 +50,9 @@ struct Context {
 impl Drop for Context {
     fn drop(&mut self) {
         // Close the stream: reader observes end-of-stream.
-        self.shared.borrow_mut().writer = None;
+        let mut shared = self.shared.borrow_mut();
+        shared.writer = None;
+        shared.closed = true;
     }
 }
 
@@ -57,9 +65,9 @@ impl GuestContext for Context {
             let rejected = writer.write_one(msg).await;
             if rejected.is_none() {
                 // Delivered; put the writer back unless the context was
-                // dropped or hung up meanwhile.
+                // dropped (closed) or hung up meanwhile.
                 let mut shared = self.shared.borrow_mut();
-                if shared.observed && shared.writer.is_none() {
+                if shared.observed && !shared.closed && shared.writer.is_none() {
                     shared.writer = Some(writer);
                 }
             }

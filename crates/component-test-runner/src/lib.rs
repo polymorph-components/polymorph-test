@@ -145,6 +145,15 @@ impl<D: RunnerView + 'static> Runner<D> {
 
         let wasm_bytes = std::fs::read(suite_path)
             .with_context(|| format!("reading suite component {}", suite_path.display()))?;
+        // Pre-check the magic so a wrong file yields "not WebAssembly"
+        // instead of the WAT parser's internals on the first byte.
+        if !wasm_bytes.starts_with(b"\0asm") {
+            bail!(
+                "{} is not a WebAssembly binary (bad magic; expected a \
+                 component built with --target wasm32-wasip2)",
+                suite_path.display()
+            );
+        }
         let component = Component::new(&engine, &wasm_bytes)
             .with_context(|| format!("loading suite component {}", suite_path.display()))?;
 
@@ -426,6 +435,13 @@ impl<D: RunnerView + 'static> Runner<D> {
         }
 
         let names = self.enumerate().await.context("enumerating suite")?;
+        // Normative rule ("empty selection is a run error"): a suite
+        // whose cases were all compiled away must not report vacuous
+        // success. SDK suites can't be empty (the macro rejects it);
+        // this guards non-SDK producers.
+        if names.is_empty() {
+            bail!("suite enumerated zero cases (empty selection is a run error)");
+        }
         let mut summary = Summary::default();
 
         // Runtime cross-check: the static inventory and `all()` must

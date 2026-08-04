@@ -590,6 +590,18 @@ fn validate(cases: &[CaseDef], gens: &[GenDef]) -> Result<()> {
     use component_test_core::{name::is_wit_label, CaseName};
     use std::collections::BTreeSet;
 
+    // An empty suite emits no tags section and reports zero cases as
+    // success in every runner ("empty selection is a run error" — the
+    // normative fold rule); refuse at compile time instead.
+    if cases.is_empty() && gens.is_empty() {
+        return Err(Error::new(
+            proc_macro2::Span::call_site(),
+            "suite has no cases: annotate at least one fn with #[case] \
+             (or add a #[case_generator]) — an empty suite would report \
+             vacuous success",
+        ));
+    }
+
     let mut seen = BTreeSet::new();
     let mut positive: BTreeSet<String> = BTreeSet::new();
     let mut negative: BTreeSet<String> = BTreeSet::new();

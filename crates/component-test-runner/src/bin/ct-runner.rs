@@ -69,6 +69,15 @@ fn run() -> Result<ExitCode> {
                     .with_context(|| format!("--cases-per-instance: invalid number `{v}`"))?;
             }
             "--jsonl" => mode = OutputMode::Jsonl,
+            "-h" | "--help" => {
+                println!("{USAGE}");
+                return Ok(ExitCode::SUCCESS);
+            }
+            "-V" | "--version" => {
+                println!("ct-runner {}", env!("CARGO_PKG_VERSION"));
+                return Ok(ExitCode::SUCCESS);
+            }
+            s if s.starts_with('-') => bail!("unknown flag `{s}`\n{USAGE}"),
             _ if suite.is_none() => suite = Some(PathBuf::from(arg)),
             _ => bail!("unexpected argument `{arg}`\n{USAGE}"),
         }

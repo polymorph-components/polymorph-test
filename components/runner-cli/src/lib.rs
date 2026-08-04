@@ -201,7 +201,10 @@ impl RunGuest for Runner {
         drop(out);
         let _ = stdout_done.await;
 
-        if failed == 0 {
+        // Empty selection is a run error (normative fold rule): a
+        // suite whose cases were all compiled away must not report
+        // vacuous success.
+        if failed == 0 && total > 0 {
             Ok(())
         } else {
             Err(())

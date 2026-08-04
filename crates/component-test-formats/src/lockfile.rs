@@ -112,6 +112,19 @@ impl Lockfile {
             if !prefixes.insert(gen.prefix.as_str()) {
                 bail!("duplicate generated prefix `{}`", gen.prefix);
             }
+            // Same rule the inventory scanner and the macro enforce:
+            // every prefix segment is a WIT label (leaves are appended
+            // below it). A lockfile is the gate for foreign/hand-made
+            // producers, so it must not be the one validator with the
+            // hole.
+            for seg in gen.prefix.split('/') {
+                if let Some(reason) = component_test_core::name::is_wit_label(seg) {
+                    bail!(
+                        "generated prefix `{}`: segment `{seg}` is not a WIT label ({reason})",
+                        gen.prefix
+                    );
+                }
+            }
             component_test_core::Tags::new(gen.tags.clone())
                 .map_err(|e| anyhow::anyhow!("generated `{}`: {e}", gen.prefix))?;
             for tag in &gen.tags {
@@ -156,6 +169,14 @@ impl Lockfile {
                     bail!("case `{name}` reported more than once");
                 }
             } else if self.prefix_of(name).is_some() {
+                // Generated leaves are the one place reported names
+                // aren't pre-validated set members: hold them to the
+                // full grammar, or downstream consumers keying
+                // artifacts by case name inherit traversal/collision
+                // hazards (e.g. `prefix/../../etc/passwd`).
+                if let Err(e) = CaseName::parse(name) {
+                    bail!("reported case `{name}` under a generated prefix is not a valid case name: {e}");
+                }
                 if !seen_generated.insert(name.to_string()) {
                     bail!("case `{name}` reported more than once");
                 }
@@ -298,6 +319,43 @@ mod tests {
         assert!(lf.check_coverage(["a/x"]).is_err());
         assert!(lf.check_coverage(["a/x", "a/y", "a/z"]).is_err());
         assert!(lf.check_coverage(["a/x", "a/x", "a/y"]).is_err());
+    }
+
+    #[test]
+    fn coverage_validates_generated_leaf_grammar() {
+        let mut lf = lockfile(vec![entry("a/x", &[])]);
+        lf.generated.push(GeneratedEntry {
+            prefix: "a/gen".into(),
+            tags: vec![],
+        });
+        lf.validate().unwrap();
+        lf.check_coverage(["a/x", "a/gen/tc1"]).unwrap();
+        for bad in [
+            "a/gen/../../../etc/passwd",
+            "a/gen/UPPER CASE and spaces!",
+            "a/gen//empty-segment",
+        ] {
+            let err = lf.check_coverage(["a/x", bad]).unwrap_err().to_string();
+            assert!(err.contains("not a valid case name"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn validate_checks_generated_prefix_grammar() {
+        let mut lf = lockfile(vec![entry("a/x", &[])]);
+        lf.generated.push(GeneratedEntry {
+            prefix: "Bad_Prefix".into(),
+            tags: vec![],
+        });
+        let err = lf.validate().unwrap_err().to_string();
+        assert!(err.contains("not a WIT label"), "{err}");
+
+        let mut lf = lockfile(vec![entry("a/x", &[])]);
+        lf.generated.push(GeneratedEntry {
+            prefix: "a/375".into(),
+            tags: vec![],
+        });
+        assert!(lf.validate().is_err());
     }
 
     #[test]

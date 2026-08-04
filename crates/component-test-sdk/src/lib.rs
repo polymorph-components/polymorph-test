@@ -73,8 +73,26 @@ impl std::ops::Deref for TestContext {
 /// root), not from here.
 pub mod prelude {
     pub use crate::{
-        check, check_eq, failed, gen_case, skipped, GeneratedCase as Case, TestContext, Verdict,
+        check, check_eq, failed, gen_case, skipped, Failure, GeneratedCase as Case, OrFail,
+        TestContext, Verdict,
     };
+}
+
+/// `?`-adjacent ergonomics for error types outside the blanket
+/// `From<E: std::error::Error> for Failure` — most notably
+/// `anyhow::Error`, which deliberately does not implement `Error` and
+/// therefore cannot ride `?` into a [`Verdict`] directly. In a case
+/// body: `let v = helper().or_fail()?;`.
+pub trait OrFail<T> {
+    /// Map the error into a one-line [`Failure::Failed`] (`{:#}`
+    /// formatting, so error chains flatten onto the line).
+    fn or_fail(self) -> Result<T, Failure>;
+}
+
+impl<T, E: std::fmt::Display> OrFail<T> for Result<T, E> {
+    fn or_fail(self) -> Result<T, Failure> {
+        self.map_err(|e| Failure::Failed(format!("{e:#}")))
+    }
 }
 
 /// Boxed case body: borrows the context for the duration of the run.
@@ -296,12 +314,18 @@ macro_rules! check_eq {
     }};
 }
 
-/// Assert a condition, failing the case with the given one-line detail.
-/// Expands to an early `return`, so it may only be used directly inside
-/// a function returning [`Verdict`] (not in helpers with other return
-/// types).
+/// Assert a condition, failing the case with the given one-line detail
+/// (or, with no message, the stringified condition — mirroring
+/// `assert!`). Expands to an early `return`, so it may only be used
+/// directly inside a function returning [`Verdict`] (not in helpers
+/// with other return types).
 #[macro_export]
 macro_rules! check {
+    ($cond:expr $(,)?) => {{
+        if !$cond {
+            return $crate::failed(concat!("check failed: ", stringify!($cond)));
+        }
+    }};
     ($cond:expr, $($detail:tt)+) => {{
         if !$cond {
             return $crate::failed(format!($($detail)+));
@@ -376,5 +400,40 @@ mod tests {
             Ok(())
         }
         reg.case("Bad/Name", &[], move |ctx| Box::pin(ok(ctx)));
+    }
+
+    #[test]
+    fn or_fail_maps_display_errors() {
+        // std error types ride the blanket `From<E: Error>` via `?`;
+        // or_fail covers Display-only errors — anyhow above all.
+        fn anyhow_body() -> Verdict {
+            let e = anyhow::anyhow!("root").context("outer");
+            Err::<(), _>(e).or_fail()?;
+            Ok(())
+        }
+        match anyhow_body() {
+            Err(Failure::Failed(d)) => assert_eq!(d, "outer: root"), // {:#} flattens the chain
+            other => panic!("expected failed, got {other:?}"),
+        }
+
+        fn ok_body() -> Verdict {
+            let n: i32 = "42".parse().or_fail()?;
+            check!(n == 42);
+            Ok(())
+        }
+        assert_eq!(ok_body(), Ok(()));
+    }
+
+    #[test]
+    fn bare_check_uses_stringified_condition() {
+        fn body(n: u32) -> Verdict {
+            check!(n > 3);
+            Ok(())
+        }
+        assert_eq!(body(4), Ok(()));
+        match body(1) {
+            Err(Failure::Failed(d)) => assert_eq!(d, "check failed: n > 3"),
+            other => panic!("expected failed, got {other:?}"),
+        }
     }
 }

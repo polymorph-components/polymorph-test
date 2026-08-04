@@ -44,7 +44,11 @@ impl fmt::Display for Failure {
 }
 
 /// How a `fail` result came to be (results-schema `provenance`).
+///
+/// `#[non_exhaustive]`: the results schema evolves additively (frozen
+/// surface #3), so downstream matches must carry a wildcard arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),

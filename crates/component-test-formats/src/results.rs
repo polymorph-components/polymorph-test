@@ -101,7 +101,14 @@ fn default_true() -> bool {
     true
 }
 
+/// Case status (the wire vocabulary is [`Status::word`]).
+///
+/// `#[non_exhaustive]`: the results schema evolves additively (frozen
+/// surface #3), so downstream matches must carry a wildcard arm.
+/// Unknown statuses *on the wire* never deserialize to this enum —
+/// [`fold_jsonl`] diverts them to `unknown_statuses`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 #[serde(rename_all = "kebab-case")]
 pub enum Status {
     Pass,
@@ -177,6 +184,16 @@ pub fn fold_jsonl<S: AsRef<str>>(stream: &str, selected: &[S]) -> anyhow::Result
     let envelope: Envelope =
         serde_json::from_str(lines.next().context("empty stream: missing envelope")?)
             .context("parsing envelope")?;
+    // The version tag is the schema's evolution gate: additive changes
+    // keep the version, so an unknown version means the stream needs
+    // something this consumer doesn't understand. Refuse loudly rather
+    // than misfold (lockfile/manifest validators do the same).
+    if envelope.version != RESULTS_VERSION {
+        anyhow::bail!(
+            "unsupported results version `{}` (this consumer understands `{RESULTS_VERSION}`)",
+            envelope.version
+        );
+    }
 
     if selected.is_empty() {
         anyhow::bail!("empty selection is a run error");
@@ -366,5 +383,58 @@ mod tests {
         jsonl.push_str(TERMINATOR);
         let doc = fold_jsonl(&jsonl, &["a/x"]).unwrap();
         assert_eq!(doc.run_errors, vec!["enumeration trapped"]);
+    }
+
+    #[test]
+    fn unknown_version_refused() {
+        let mut env = envelope();
+        env.version = "9.9".into();
+        let jsonl = to_jsonl(&env, &[pass("a/x")]).unwrap();
+        let err = fold_jsonl(&jsonl, &["a/x"]).unwrap_err().to_string();
+        assert!(err.contains("unsupported results version `9.9`"), "{err}");
+    }
+
+    /// Pins the wire vocabulary (frozen surface: additive evolution
+    /// only). A word changing here is a schema break; a new variant
+    /// must be *added* to these tables, never renamed.
+    #[test]
+    fn wire_vocabulary_pinned() {
+        let statuses = [
+            (Status::Pass, "pass"),
+            (Status::Fail, "fail"),
+            (Status::Skipped, "skipped"),
+            (Status::NotReached, "not-reached"),
+            (Status::NotApplicable, "not-applicable"),
+            (Status::Deselected, "deselected"),
+        ];
+        for (status, word) in statuses {
+            assert_eq!(status.word(), word);
+            assert_eq!(
+                serde_json::to_value(status).unwrap(),
+                serde_json::Value::String(word.into())
+            );
+            assert_eq!(
+                serde_json::from_value::<Status>(serde_json::Value::String(word.into())).unwrap(),
+                status
+            );
+        }
+        // Provenance, including hang-guard (never yet emitted by a
+        // runner; pinned here before anything depends on the accident).
+        let provenances = [
+            (Provenance::Returned, "returned"),
+            (Provenance::Trap, "trap"),
+            (Provenance::HangGuard, "hang-guard"),
+        ];
+        for (provenance, word) in provenances {
+            assert_eq!(
+                serde_json::to_value(provenance).unwrap(),
+                serde_json::Value::String(word.into())
+            );
+            assert_eq!(
+                serde_json::from_value::<Provenance>(serde_json::Value::String(word.into()))
+                    .unwrap(),
+                provenance
+            );
+        }
     }
 }

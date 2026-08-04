@@ -20,6 +20,11 @@ fn top_group(case: &str) -> &str {
     }
 }
 
+/// Display vocabulary for matrix cells — deliberately *not*
+/// [`Status::word`]: failures shout (upper case), expected outcomes
+/// stay quiet, and `N/A` keeps cells narrow. This match is exhaustive
+/// on purpose: adding a `Status` variant must force a decision here
+/// (the enum is `#[non_exhaustive]` only for foreign crates).
 fn word(status: Status) -> &'static str {
     match status {
         Status::Pass => "pass",

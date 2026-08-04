@@ -33,4 +33,5 @@ for (const testCase of cases) {
 }
 
 console.log(`\nresult: ${passed} passed, ${failed} failed, ${skipped} skipped, ${cases.length} total`);
-process.exit(failed === 0 ? 0 : 1);
+// Empty selection is a run error: zero cases must not exit green.
+process.exit(failed === 0 && cases.length > 0 ? 0 : 1);

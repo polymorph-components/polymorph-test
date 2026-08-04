@@ -9,7 +9,7 @@
 //!             [--results target=path.jsonl]... [-o matrix.md]
 //!       Cross-target validation + markdown matrix (#30).
 
-use std::io::Read;
+use std::io::{IsTerminal, Read};
 
 use anyhow::{bail, Context as _};
 use component_test_formats::{
@@ -19,21 +19,30 @@ use component_test_formats::{
     matrix, results, sha256_hex,
 };
 
+fn usage() -> String {
+    "usage: component-test lock <suite.wasm> [-o tests.lock] [--check tests.lock]\n       \
+     component-test fold [tests.lock] < results.jsonl\n       \
+     component-test aggregate --lock tests.lock --manifest targets.toml \
+     [--results target=path.jsonl]... [-o matrix.md]"
+        .into()
+}
+
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(|s| s.as_str()) {
         Some("lock") => lock(&args[1..]),
         Some("fold") => fold(&args[1..]),
         Some("aggregate") => aggregate_cmd(&args[1..]),
+        Some("-h" | "--help" | "help") => {
+            println!("{}", usage());
+            Ok(())
+        }
+        Some("-V" | "--version") => {
+            println!("component-test {}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
         _ => {
-            eprintln!(
-                "usage: component-test lock <suite.wasm> [-o tests.lock] [--check tests.lock]"
-            );
-            eprintln!("       component-test fold [tests.lock] < results.jsonl");
-            eprintln!(
-                "       component-test aggregate --lock tests.lock --manifest targets.toml \
-                 [--results target=path.jsonl]... [-o matrix.md]"
-            );
+            eprintln!("{}", usage());
             std::process::exit(2);
         }
     }
@@ -48,12 +57,20 @@ fn lock(args: &[String]) -> anyhow::Result<()> {
         match arg.as_str() {
             "-o" => out_path = Some(it.next().context("-o needs a path")?.clone()),
             "--check" => check_path = Some(it.next().context("--check needs a path")?.clone()),
+            "-h" | "--help" => {
+                println!("{}", usage());
+                return Ok(());
+            }
+            s if s.starts_with('-') => bail!("unknown flag `{s}`\n{}", usage()),
             _ if suite_path.is_none() => suite_path = Some(arg.clone()),
             other => bail!("unexpected argument `{other}`"),
         }
     }
     let suite_path = suite_path.context("missing suite.wasm path")?;
     let wasm = std::fs::read(&suite_path).with_context(|| format!("reading {suite_path}"))?;
+    if !wasm.starts_with(b"\0asm") {
+        bail!("{suite_path} is not a WebAssembly binary (bad magic)");
+    }
 
     let inv = inventory::inventory(&wasm)?;
     let artifact_sha256 = sha256_hex(&wasm);
@@ -100,6 +117,23 @@ fn lock(args: &[String]) -> anyhow::Result<()> {
 }
 
 fn fold(args: &[String]) -> anyhow::Result<()> {
+    match args.first().map(|s| s.as_str()) {
+        Some("-h" | "--help") => {
+            println!("{}", usage());
+            return Ok(());
+        }
+        Some(s) if s.starts_with('-') => bail!("unknown flag `{s}`\n{}", usage()),
+        _ => {}
+    }
+
+    // Reading stdin to EOF is the first thing that happens; without a
+    // pipe it blocks forever, so say so.
+    if std::io::stdin().is_terminal() {
+        eprintln!(
+            "note: reading a JSONL results stream from stdin \
+             (terminal attached — did you forget to pipe?)"
+        );
+    }
     let mut stream = String::new();
     std::io::stdin().read_to_string(&mut stream)?;
 
@@ -148,6 +182,11 @@ fn fold(args: &[String]) -> anyhow::Result<()> {
             results::Status::NotReached => "NOT-REACHED",
             results::Status::NotApplicable => "N/A",
             results::Status::Deselected => "DESELECTED",
+            // `Status` is #[non_exhaustive]. Unknown *wire* statuses
+            // never deserialize into it (fold diverts them), so this
+            // arm only fires for future variants added to the enum;
+            // the kebab-case schema word is the sane default flag.
+            _ => r.status.word(),
         };
         match r.detail.as_deref() {
             Some(detail) => println!("{flag}: {} — {detail}", r.case),
@@ -211,7 +250,11 @@ fn aggregate_cmd(args: &[String]) -> anyhow::Result<()> {
                 result_args.push((target.to_string(), path.to_string()));
             }
             "-o" => out_path = Some(it.next().context("-o needs a path")?.clone()),
-            other => bail!("unexpected argument `{other}`"),
+            "-h" | "--help" => {
+                println!("{}", usage());
+                return Ok(());
+            }
+            other => bail!("unexpected argument `{other}`\n{}", usage()),
         }
     }
     let lock_path = lock_path.context("missing --lock")?;

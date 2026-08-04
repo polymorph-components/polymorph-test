@@ -7,20 +7,19 @@ mod fixture {
     mod trap {
         #[case]
         async fn before(ctx: &TestContext) -> Verdict {
-            ctx.diagnostic("before the storm".into()).await;
+            ctx.diag("before the storm").await;
             Ok(())
         }
 
         #[case]
         async fn boom(ctx: &TestContext) -> Verdict {
-            ctx.diagnostic("about to trap".into()).await;
+            ctx.diag("about to trap").await;
             panic!("fixture trap: deliberate");
         }
 
         #[case]
         async fn after(ctx: &TestContext) -> Verdict {
-            ctx.diagnostic("still alive in a fresh instance".into())
-                .await;
+            ctx.diag("still alive in a fresh instance").await;
             Ok(())
         }
     }
@@ -29,7 +28,7 @@ mod fixture {
     mod hsm {
         #[case]
         async fn attest(ctx: &TestContext) -> Verdict {
-            ctx.diagnostic("exercising hsm attestation".into()).await;
+            ctx.diag("exercising hsm attestation").await;
             Ok(())
         }
 
@@ -37,8 +36,7 @@ mod fixture {
         /// the decline case lives with its family.
         #[case(tags("!hsm"))]
         async fn declined(ctx: &TestContext) -> Verdict {
-            ctx.diagnostic("asserting hsm is declined, not half-served".into())
-                .await;
+            ctx.diag("asserting hsm is declined, not half-served").await;
             Ok(())
         }
     }
@@ -48,7 +46,7 @@ mod fixture {
         mod deep {
             #[case]
             async fn leaf(ctx: &TestContext) -> Verdict {
-                ctx.diagnostic("two levels down".into()).await;
+                ctx.diag("two levels down").await;
                 Ok(())
             }
         }
