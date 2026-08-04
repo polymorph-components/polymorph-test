@@ -65,21 +65,30 @@ fn segment_char_ok(c: char) -> bool {
     matches!(c, 'a'..='z' | '0'..='9' | '-' | '_' | '.')
 }
 
-/// Is `s` a valid WIT label (kebab-case: words of `[a-z][a-z0-9]*`
-/// joined by `-`)?
+/// Is `s` a valid WIT label? Kebab-case words joined by `-`: the first
+/// word is `[a-z][a-z0-9]*`; subsequent words may also be number-only
+/// (`[0-9]+`), per the amended component-model label grammar (e.g.
+/// `sha256-2048`).
 pub fn is_wit_label(s: &str) -> Option<&'static str> {
     if s.is_empty() {
         return Some("empty");
     }
-    for word in s.split('-') {
+    for (i, word) in s.split('-').enumerate() {
         let mut chars = word.chars();
         match chars.next() {
             None => return Some("empty word (leading/trailing/double `-`)"),
-            Some('a'..='z') => {}
-            Some(_) => return Some("word must start with a lowercase letter"),
-        }
-        if !chars.all(|c| matches!(c, 'a'..='z' | '0'..='9')) {
-            return Some("word may contain only [a-z0-9]");
+            Some('a'..='z') => {
+                if !chars.all(|c| matches!(c, 'a'..='z' | '0'..='9')) {
+                    return Some("word may contain only [a-z0-9]");
+                }
+            }
+            Some('0'..='9') if i > 0 => {
+                if !chars.all(|c| c.is_ascii_digit()) {
+                    return Some("number word may contain only digits");
+                }
+            }
+            Some('0'..='9') => return Some("first word must start with a lowercase letter"),
+            Some(_) => return Some("word must start with a lowercase letter or digits"),
         }
     }
     None
@@ -343,6 +352,8 @@ mod tests {
             "group/source/case-375",
             "alg/wycheproof/0x1a2b_16384.v2",
             "a-b/c1/leaf",
+            "sha256-2048/leaf",
+            "rsassa-pkcs1-v15-sha256-2048/wycheproof/tc1",
         ] {
             CaseName::parse(n).unwrap_or_else(|e| panic!("{n}: {e}"));
         }
@@ -509,22 +520,34 @@ const fn const_segment_char(c: u8) -> bool {
     matches!(c, b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.')
 }
 
-/// Const label check over `b[start..end]` (kebab-case words of
-/// `[a-z][a-z0-9]*`).
+/// Const label check over `b[start..end]` (kebab-case; first word
+/// `[a-z][a-z0-9]*`, later words may be number-only, per the amended
+/// component-model label grammar).
 const fn const_valid_label_range(b: &[u8], start: usize, end: usize) -> bool {
     if start >= end {
         return false;
     }
     let mut i = start;
+    let mut first_word = true;
     loop {
         // word start
-        if i >= end || !b[i].is_ascii_lowercase() {
+        if i >= end {
             return false;
         }
-        i += 1;
-        while i < end && (b[i].is_ascii_lowercase() || b[i].is_ascii_digit()) {
+        if b[i].is_ascii_lowercase() {
             i += 1;
+            while i < end && (b[i].is_ascii_lowercase() || b[i].is_ascii_digit()) {
+                i += 1;
+            }
+        } else if b[i].is_ascii_digit() && !first_word {
+            i += 1;
+            while i < end && b[i].is_ascii_digit() {
+                i += 1;
+            }
+        } else {
+            return false;
         }
+        first_word = false;
         if i == end {
             return true;
         }
@@ -565,6 +588,8 @@ mod const_tests {
             "./a",
             "a/../b",
             "375/leaf",
+            "2048-sha/leaf",
+            "a-2048x/leaf",
             "a_b/leaf",
             "a.b/leaf",
             "-a/leaf",
@@ -574,6 +599,9 @@ mod const_tests {
             "a/a.b",
             "a\nb",
             "solo",
+            "sha256-2048/leaf",
+            "2048-sha/leaf",
+            "a-2048x/leaf",
         ] {
             assert_eq!(
                 const_valid_name(s),

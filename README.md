@@ -66,7 +66,9 @@ segment = 1*64 of [a-z 0-9 - _ .]           ; a segment is never "." or ".."
 ```
 
 All segments except the last must additionally be valid WIT labels
-(kebab-case: words of `[a-z][a-z0-9]*` joined by `-`). This makes
+(kebab-case: first word `[a-z][a-z0-9]*`; later words may also be
+number-only, per the amended component-model label grammar — e.g.
+`sha256-2048`). This makes
 hierarchical prefixes project verbatim into nested instance names under
 composition and introspection (no mangling layer for prefixes; the leaf —
 where encoded parameters concentrate — keeps the full charset and needs
