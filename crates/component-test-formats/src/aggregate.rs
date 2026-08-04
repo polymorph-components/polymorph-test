@@ -180,6 +180,9 @@ pub fn aggregate(
     // (target, envelope artifact sha256) for the cross-target agreement
     // warning — collected during the per-target pass, judged after it.
     let mut envelope_hashes: Vec<(String, String)> = Vec::new();
+    // Per-target generated-leaf sets, for the cross-target agreement
+    // check after the loop.
+    let mut generated_leaves: Vec<(String, BTreeSet<String>)> = Vec::new();
 
     // Applicability lookup, built once (not per target — the corpus
     // scale is thousands of cases × several targets): case name →
@@ -267,6 +270,14 @@ pub fn aggregate(
         if let Err(e) = lockfile.check_coverage(doc.results.iter().map(|r| r.case.as_str())) {
             errors.push(format!("target `{target}`: coverage: {e}"));
         }
+        generated_leaves.push((
+            target.clone(),
+            doc.results
+                .iter()
+                .filter(|r| lockfile.prefix_of(&r.case).is_some())
+                .map(|r| r.case.clone())
+                .collect(),
+        ));
 
         let mut target_results: BTreeMap<String, CaseResult> = doc
             .results
@@ -445,6 +456,46 @@ pub fn aggregate(
                 "targets report differing suite artifact hashes (mixed builds?): {}",
                 detail.join(", ")
             ));
+        }
+    }
+
+    // Cross-target generated-leaf agreement: `[[generated]]` lockfile
+    // entries pin prefixes, not leaves, so per-target coverage imposes
+    // no membership on generated rows (#49). But every target in one
+    // aggregation ran the same suite artifact, whose enumeration is
+    // deterministic, and scheduling emits not-applicable rows rather
+    // than omitting cases — so the generated leaf *sets* must agree
+    // across targets. A target missing leaves the others report has
+    // silently shed rows (a filtered/truncated stream, or a runner
+    // that omits rather than declines). This cannot catch a uniform
+    // regression (every target losing the same rows); that bound needs
+    // leaf pinning in the lockfile (#49).
+    {
+        let union: BTreeSet<&str> = generated_leaves
+            .iter()
+            .flat_map(|(_, s)| s.iter().map(|c| c.as_str()))
+            .collect();
+        for (target, leaves) in &generated_leaves {
+            let missing: Vec<&str> = union
+                .iter()
+                .filter(|c| !leaves.contains(**c))
+                .copied()
+                .collect();
+            if !missing.is_empty() {
+                let shown = missing.iter().take(5).copied().collect::<Vec<_>>();
+                let more = missing.len() - shown.len();
+                let suffix = if more > 0 {
+                    format!(" (+{more} more)")
+                } else {
+                    String::new()
+                };
+                errors.push(format!(
+                    "target `{target}`: generated rows missing {} leaf case(s) \
+                     other targets report: {}{suffix}",
+                    missing.len(),
+                    shown.join(", ")
+                ));
+            }
         }
     }
 
@@ -824,6 +875,84 @@ mod tests {
                 .any(|w| w.contains("suite/gen/tc999") && w.contains("did not materialize")),
             "{:?}",
             agg.warnings
+        );
+    }
+
+    /// #49: `[[generated]]` pins prefixes, not leaves, so per-target
+    /// coverage imposes no membership on generated rows — but targets
+    /// in one aggregation ran the same artifact, so their generated
+    /// leaf sets must agree. A target missing leaves the others report
+    /// has silently shed rows.
+    #[test]
+    fn generated_leaf_sets_must_agree_across_targets() {
+        let mut lock = corpus_lock();
+        lock.generated.push(crate::lockfile::GeneratedEntry {
+            prefix: "suite/gen".into(),
+            tags: vec![],
+        });
+        let full = |target: &str| {
+            let mut results = match target {
+                "native" => native_doc().results,
+                _ => sim_doc().results,
+            };
+            results.push(result("suite/gen/tc1", Status::Pass, None));
+            results.push(result("suite/gen/tc2", Status::Pass, None));
+            doc(target, results)
+        };
+
+        // Agreement: no errors.
+        let agg = aggregate(
+            &lock,
+            &manifest(MANIFEST),
+            &[
+                ("native".into(), full("native")),
+                ("sim".into(), full("sim")),
+            ],
+        );
+        assert!(agg.errors.is_empty(), "{:?}", agg.errors);
+
+        // One target sheds a leaf: error names the target and the leaf.
+        let mut shed = full("sim");
+        shed.results.retain(|r| r.case != "suite/gen/tc2");
+        let agg = aggregate(
+            &lock,
+            &manifest(MANIFEST),
+            &[("native".into(), full("native")), ("sim".into(), shed)],
+        );
+        assert!(
+            agg.errors.iter().any(|e| e.contains("target `sim`")
+                && e.contains("generated rows missing 1 leaf case(s)")
+                && e.contains("suite/gen/tc2")),
+            "{:?}",
+            agg.errors
+        );
+        // The intact target is not implicated.
+        assert!(
+            !agg.errors
+                .iter()
+                .any(|e| e.contains("target `native`") && e.contains("generated rows missing")),
+            "{:?}",
+            agg.errors
+        );
+
+        // A uniform drop (both targets lose the same leaf) is NOT
+        // caught here — the documented limit; the lockfile-side leaf
+        // pin (#49) owns that bound.
+        let mut a = full("native");
+        a.results.retain(|r| r.case != "suite/gen/tc2");
+        let mut b = full("sim");
+        b.results.retain(|r| r.case != "suite/gen/tc2");
+        let agg = aggregate(
+            &lock,
+            &manifest(MANIFEST),
+            &[("native".into(), a), ("sim".into(), b)],
+        );
+        assert!(
+            !agg.errors
+                .iter()
+                .any(|e| e.contains("generated rows missing")),
+            "{:?}",
+            agg.errors
         );
     }
 
