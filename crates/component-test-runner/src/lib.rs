@@ -266,6 +266,59 @@ impl<D: RunnerView + 'static> Runner<D> {
         })
     }
 
+    /// Serve one case through the session slot: recycle the session at
+    /// the instance-granularity knob, (re)create it as needed, run the
+    /// case, and poison the slot on abandonment-class verdicts. The
+    /// single implementation behind both the sequential and worker
+    /// loops — the two had already diverged once (session-creation
+    /// failure policy), so per-case logic lives here or nowhere.
+    ///
+    /// Session-creation failure is a per-case trap + continue (the
+    /// worker path's policy, now unified): poisoning is contained, and
+    /// a suite whose constructor wedges deterministically never gets
+    /// here — the census enumeration runs first and fails the whole
+    /// run.
+    async fn serve_case(
+        &self,
+        session: &mut Option<Session<D>>,
+        live_print: bool,
+        cases_per_instance: usize,
+        index: usize,
+        enumerated_name: &str,
+    ) -> (String, Verdict, Vec<String>) {
+        if session
+            .as_ref()
+            .is_some_and(|s| cases_per_instance != 0 && s.served >= cases_per_instance)
+        {
+            *session = None;
+        }
+        if session.is_none() {
+            match self.new_session(live_print).await {
+                Ok(s) => *session = Some(s),
+                Err(e) => {
+                    return (
+                        enumerated_name.to_string(),
+                        Verdict::Trap(trap_detail(&e)),
+                        Vec::new(),
+                    );
+                }
+            }
+        }
+        let result = match self.run_case(session.as_mut().unwrap(), index).await {
+            Ok(r) => r,
+            Err(e) => (
+                enumerated_name.to_string(),
+                Verdict::Trap(trap_detail(&e)),
+                Vec::new(),
+            ),
+        };
+        if matches!(result.1, Verdict::Trap(_)) {
+            // Poisoned: abandon the instance whatever the knob says.
+            *session = None;
+        }
+        result
+    }
+
     /// Run case `index` in the given session. Returns the name (from
     /// this instance) and what happened.
     async fn run_case(
@@ -609,39 +662,15 @@ impl<D: RunnerView + 'static> Runner<D> {
                         wasmtime_wasi::runtime::in_tokio(async move {
                             let mut session: Option<Session<D>> = None;
                             for index in stripe {
-                                if session.as_ref().is_some_and(|s| {
-                                    cases_per_instance != 0 && s.served >= cases_per_instance
-                                }) {
-                                    session = None;
-                                }
-                                if session.is_none() {
-                                    match self.new_session(false).await {
-                                        Ok(s) => session = Some(s),
-                                        Err(e) => {
-                                            let _ = tx.send((
-                                                index,
-                                                (
-                                                    names[index].clone(),
-                                                    Verdict::Trap(trap_detail(&e)),
-                                                    Vec::new(),
-                                                ),
-                                            ));
-                                            continue;
-                                        }
-                                    }
-                                }
-                                let result =
-                                    match self.run_case(session.as_mut().unwrap(), index).await {
-                                        Ok(r) => r,
-                                        Err(e) => (
-                                            names[index].clone(),
-                                            Verdict::Trap(trap_detail(&e)),
-                                            Vec::new(),
-                                        ),
-                                    };
-                                if matches!(result.1, Verdict::Trap(_)) {
-                                    session = None;
-                                }
+                                let result = self
+                                    .serve_case(
+                                        &mut session,
+                                        false,
+                                        cases_per_instance,
+                                        index,
+                                        &names[index],
+                                    )
+                                    .await;
                                 let _ = tx.send((index, result));
                             }
                         });
@@ -691,29 +720,14 @@ impl<D: RunnerView + 'static> Runner<D> {
                 }
                 r
             } else {
-                if session
-                    .as_ref()
-                    .is_some_and(|s| cases_per_instance != 0 && s.served >= cases_per_instance)
-                {
-                    session = None;
-                }
-                if session.is_none() {
-                    session = Some(self.new_session(human).await?);
-                }
-                let result = match self.run_case(session.as_mut().unwrap(), index).await {
-                    Ok(r) => r,
-                    Err(e) => (
-                        enumerated_name.clone(),
-                        Verdict::Trap(trap_detail(&e)),
-                        Vec::new(),
-                    ),
-                };
-                if matches!(result.1, Verdict::Trap(_)) {
-                    // Poisoned: abandon the instance whatever the knob
-                    // says.
-                    session = None;
-                }
-                result
+                self.serve_case(
+                    &mut session,
+                    human,
+                    cases_per_instance,
+                    index,
+                    enumerated_name,
+                )
+                .await
             };
 
             if human {
