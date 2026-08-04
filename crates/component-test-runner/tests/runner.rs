@@ -155,6 +155,43 @@ fn missing_feature_flips_applicability() {
 
 #[test]
 #[ignore = "needs built components: run via `just test-wasm`"]
+fn suite_artifact_flag_rebinds_the_envelope() {
+    // Composed-run identity: --suite-artifact binds the envelope's suite
+    // name and sha256 to the given artifact (what the suite's lockfile
+    // records) instead of the executed one. Standing in for a composed
+    // bundle, the fixture suite runs while claiming the sample suite's
+    // identity — the mechanism under test, not a sensible pairing.
+    let executed = fixture_wasm();
+    let claimed = suite_artifact("sample_suite");
+    let run = ct_runner(&[
+        executed.to_str().unwrap(),
+        "--jsonl",
+        "--suite-artifact",
+        claimed.to_str().unwrap(),
+    ]);
+    assert_eq!(run.code, 1, "stderr: {}", run.stderr);
+    let (envelope, _, _) = parse_jsonl(&run.stdout);
+    assert_eq!(envelope["suite"]["name"], "sample_suite");
+    let bytes = std::fs::read(&claimed).unwrap();
+    assert_eq!(
+        envelope["suite"]["artifact-sha256"],
+        component_test_formats::sha256_hex(&bytes).as_str()
+    );
+
+    // A missing path is a startup error, not a silent fallback to the
+    // executed artifact's identity.
+    let run = ct_runner(&[
+        executed.to_str().unwrap(),
+        "--jsonl",
+        "--suite-artifact",
+        "/nonexistent/suite.wasm",
+    ]);
+    assert_eq!(run.code, 2, "stderr: {}", run.stderr);
+    assert!(run.stderr.contains("reading suite artifact"));
+}
+
+#[test]
+#[ignore = "needs built components: run via `just test-wasm`"]
 fn parallel_jobs_emit_census_order() {
     let wasm = fixture_wasm();
     let sequential = ct_runner(&[wasm.to_str().unwrap(), "--jsonl"]);

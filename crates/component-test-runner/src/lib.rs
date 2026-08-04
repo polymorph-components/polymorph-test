@@ -103,6 +103,10 @@ pub struct Runner<D: RunnerView + 'static = Ctx> {
     component: Component,
     linker: Linker<D>,
     wasm_bytes: Vec<u8>,
+    /// Overrides the envelope's artifact binding (see
+    /// [`Runner::bind_suite_artifact`]). `None` binds the executed
+    /// artifact itself.
+    suite_artifact_sha256: Option<String>,
     make_data: Box<dyn Fn() -> D + Send + Sync>,
 }
 
@@ -192,8 +196,21 @@ impl<D: RunnerView + 'static> Runner<D> {
             component,
             linker,
             wasm_bytes,
+            suite_artifact_sha256: None,
             make_data: Box::new(make_data),
         })
+    }
+
+    /// Bind the results envelope to `suite_wasm` — the *suite*
+    /// component's bytes — instead of the executed artifact. For
+    /// composed runs (suite `wac plug`ged with its providers) the
+    /// executed bundle's hash can never match the suite's lockfile,
+    /// which records the suite artifact (the lockfile side of finding
+    /// #14); the caller attests the bundle was composed from exactly
+    /// these bytes. Case scheduling and drift checks still read the
+    /// executed artifact's inventory.
+    pub fn bind_suite_artifact(&mut self, suite_wasm: &[u8]) {
+        self.suite_artifact_sha256 = Some(component_test_formats::sha256_hex(suite_wasm));
     }
 
     fn new_store(&self, live_print: bool) -> Result<Store<D>> {
@@ -451,18 +468,23 @@ impl<D: RunnerView + 'static> Runner<D> {
         };
 
         if !human {
-            let envelope = Envelope {
-                version: RESULTS_VERSION.into(),
-                target: target.into(),
-                suite: SuiteInfo {
-                    name: suite_name.into(),
-                    // Binds the results to the exact suite build;
-                    // `aggregate` cross-checks it against the lockfile.
-                    artifact_sha256: Some(component_test_formats::sha256_hex(&self.wasm_bytes)),
-                    ..Default::default()
-                },
-                run: RunInfo::default(),
-            };
+            let envelope =
+                Envelope {
+                    version: RESULTS_VERSION.into(),
+                    target: target.into(),
+                    suite: SuiteInfo {
+                        name: suite_name.into(),
+                        // Binds the results to the exact suite build;
+                        // `aggregate` cross-checks it against the lockfile.
+                        // A composed run overrides this with the suite
+                        // component's own hash (`bind_suite_artifact`).
+                        artifact_sha256: Some(self.suite_artifact_sha256.clone().unwrap_or_else(
+                            || component_test_formats::sha256_hex(&self.wasm_bytes),
+                        )),
+                        ..Default::default()
+                    },
+                    run: RunInfo::default(),
+                };
             println!("{}", serde_json::to_string(&envelope)?);
         }
 

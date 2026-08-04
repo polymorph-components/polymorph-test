@@ -2,3 +2,8 @@ target/
 *.wasm
 Cargo.lock
 node_modules/
+
+# Prebuilt CLI/runner binaries for downstream consumers (their build
+# tooling populates and reuses this; e.g. component-webcrypto's
+# conformance-ct::_ct-tools)
+/bin/

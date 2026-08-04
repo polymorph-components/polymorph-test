@@ -1,7 +1,7 @@
 //! Thin CLI over the runner library:
 //! `ct-runner <suite.wasm> [--jsonl] [--missing f1,f2,...] [--jobs N]
 //! [--cases-per-instance N] [--target key] [--only substring]
-//! [--enumerate]`.
+//! [--enumerate] [--suite-artifact suite.wasm]`.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -21,7 +21,7 @@ fn main() -> ExitCode {
 
 const USAGE: &str = "usage: ct-runner <suite.wasm> [--jsonl] [--missing f1,f2,...] \
                      [--jobs N] [--cases-per-instance N] [--target key] \
-                     [--only substring] [--enumerate]";
+                     [--only substring] [--enumerate] [--suite-artifact suite.wasm]";
 
 fn run() -> Result<ExitCode> {
     let mut suite: Option<PathBuf> = None;
@@ -32,6 +32,7 @@ fn run() -> Result<ExitCode> {
     let mut target: String = "wasmtime/host".into();
     let mut only: Option<String> = None;
     let mut enumerate = false;
+    let mut suite_artifact: Option<PathBuf> = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -40,6 +41,16 @@ fn run() -> Result<ExitCode> {
                     .next()
                     .ok_or_else(|| anyhow::anyhow!("--missing needs a list"))?;
                 missing.extend(list.split(',').filter(|s| !s.is_empty()).map(String::from));
+            }
+            "--suite-artifact" => {
+                // For composed runs: the *suite* component the executed
+                // bundle was composed from. The results envelope binds
+                // that artifact (name and sha256) instead of the bundle,
+                // matching what the suite's lockfile records.
+                suite_artifact =
+                    Some(PathBuf::from(args.next().ok_or_else(|| {
+                        anyhow::anyhow!("--suite-artifact needs a path")
+                    })?));
             }
             "--only" => {
                 only = Some(
@@ -87,12 +98,21 @@ fn run() -> Result<ExitCode> {
     let Some(suite) = suite else {
         bail!("{USAGE}");
     };
-    let suite_name = suite
+    // The envelope's suite identity: the composed-from suite artifact
+    // when given, the executed artifact otherwise.
+    let named = suite_artifact.as_ref().unwrap_or(&suite);
+    let suite_name = named
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "suite".into());
 
-    let runner = Runner::new(&suite)?;
+    let mut runner = Runner::new(&suite)?;
+    if let Some(path) = &suite_artifact {
+        let bytes = std::fs::read(path)
+            .with_context(|| format!("reading suite artifact {}", path.display()))?;
+        runner.bind_suite_artifact(&bytes);
+    }
+    let runner = runner;
     if enumerate {
         let names = wasmtime_wasi::runtime::in_tokio(runner.enumerate())?;
         for name in names {
