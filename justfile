@@ -17,17 +17,14 @@ host-checks: fmt-check lint test wit-check
 fmt-check:
     cargo fmt --all --check
 
+# Host crates only (workspace default-members excludes components/).
 lint:
-    cargo clippy --workspace \
-        --exclude sample-suite --exclude provider \
-        --exclude runner-cli --exclude fixture-suite \
-        --all-targets -- -D warnings
+    cargo clippy --all-targets -- -D warnings
 
-# Host-crate tests (fast; excludes wasm-only component crates).
+# Host-crate tests (fast; default-members excludes the wasm-only
+# component crates).
 test:
-    cargo test --workspace \
-        --exclude sample-suite --exclude provider \
-        --exclude runner-cli --exclude fixture-suite
+    cargo test
 
 # Integration tests that execute built components (`#[ignore]`d in
 # plain `cargo test`; artifacts come from `just build`).

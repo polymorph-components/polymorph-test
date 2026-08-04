@@ -314,10 +314,7 @@ fn aggregate_cmd(args: &[String]) -> anyhow::Result<()> {
     for results in agg.results.values() {
         for r in results.values() {
             total += 1;
-            if matches!(
-                r.status,
-                results::Status::Fail | results::Status::NotReached
-            ) {
+            if r.status.failing() {
                 failures += 1;
             }
         }

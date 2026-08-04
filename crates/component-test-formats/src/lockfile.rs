@@ -95,21 +95,12 @@ impl Lockfile {
             bail!("unsupported lockfile version {}", self.version);
         }
         let mut seen = BTreeSet::new();
-        let mut positive: BTreeSet<&str> = BTreeSet::new();
-        let mut negative: BTreeSet<&str> = BTreeSet::new();
         for entry in &self.case {
             if !seen.insert(entry.name.clone()) {
                 bail!("duplicate case name `{}`", entry.name);
             }
             component_test_core::Tags::new(entry.tags.clone())
                 .map_err(|e| anyhow::anyhow!("case `{}`: {e}", entry.name))?;
-            for mark in &entry.tags {
-                if mark.is_negative() {
-                    negative.insert(mark.feature());
-                } else {
-                    positive.insert(mark.feature());
-                }
-            }
         }
         let mut prefixes = BTreeSet::new();
         for gen in &self.generated {
@@ -131,15 +122,13 @@ impl Lockfile {
             }
             component_test_core::Tags::new(gen.tags.clone())
                 .map_err(|e| anyhow::anyhow!("generated `{}`: {e}", gen.prefix))?;
-            for tag in &gen.tags {
-                if tag.is_negative() {
-                    negative.insert(tag.feature());
-                } else {
-                    positive.insert(tag.feature());
-                }
-            }
         }
-        let unpaired: Vec<&&str> = positive.difference(&negative).collect();
+        let unpaired = component_test_core::tags::unpaired_positive_features(
+            self.case
+                .iter()
+                .map(|c| c.tags.as_slice())
+                .chain(self.generated.iter().map(|g| g.tags.as_slice())),
+        );
         if !unpaired.is_empty() {
             bail!(
                 "decline-pair lint: feature(s) {} have positively-marked cases but no \
@@ -151,7 +140,16 @@ impl Lockfile {
                     .join(", ")
             );
         }
-        Ok(positive.union(&negative).map(|s| s.to_string()).collect())
+        let mut features: BTreeSet<String> = BTreeSet::new();
+        for tag in self
+            .case
+            .iter()
+            .flat_map(|c| c.tags.iter())
+            .chain(self.generated.iter().flat_map(|g| g.tags.iter()))
+        {
+            features.insert(tag.feature().to_string());
+        }
+        Ok(features)
     }
 
     /// Compare a result set's case names against the inventory: every
@@ -212,10 +210,7 @@ impl Lockfile {
     pub fn prefix_of(&self, name: &str) -> Option<&GeneratedEntry> {
         self.generated
             .iter()
-            .filter(|g| {
-                name.strip_prefix(&g.prefix)
-                    .is_some_and(|rest| rest.starts_with('/'))
-            })
+            .filter(|g| component_test_core::name::is_under(name, &g.prefix))
             .max_by_key(|g| g.prefix.len())
     }
 }

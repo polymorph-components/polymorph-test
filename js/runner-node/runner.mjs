@@ -28,20 +28,24 @@ for (const testCase of cases) {
 
   let verdict; // { status, detail }
   try {
-    await testCase.run(ctx);
-    verdict = { status: "pass" };
-  } catch (e) {
-    // jco maps result::err to a thrown ComponentError with .payload
-    const payload = e?.payload ?? e;
-    if (payload?.tag === "failed") verdict = { status: "fail", detail: payload.val };
-    else if (payload?.tag === "skipped") verdict = { status: "skip", detail: payload.val };
-    else throw e; // trap or shim bug: not a case verdict
+    try {
+      await testCase.run(ctx);
+      verdict = { status: "pass" };
+    } catch (e) {
+      // jco maps result::err to a thrown ComponentError with .payload
+      const payload = e?.payload ?? e;
+      if (payload?.tag === "failed") verdict = { status: "fail", detail: payload.val };
+      else if (payload?.tag === "skipped") verdict = { status: "skip", detail: payload.val };
+      else throw e; // trap or shim bug: not a case verdict
+    }
+  } finally {
+    // Dispose and settle the drain on every path: an abandoned drain
+    // promise rejecting after a trap would kill Node with an unhandled
+    // rejection, masking the real error.
+    if (ctx[Symbol.dispose]) ctx[Symbol.dispose]();
+    await drain.catch(() => {});
+    if (observer[Symbol.dispose]) observer[Symbol.dispose]();
   }
-
-  // Close our end of the context so the stream ends, then finish draining.
-  if (ctx[Symbol.dispose]) ctx[Symbol.dispose]();
-  await drain;
-  if (observer[Symbol.dispose]) observer[Symbol.dispose]();
 
   switch (verdict.status) {
     case "pass": passed++; console.log(`test ${name}: PASS`); break;
@@ -51,4 +55,5 @@ for (const testCase of cases) {
 }
 
 console.log(`\nresult: ${passed} passed, ${failed} failed, ${skipped} skipped, ${cases.length} total`);
-process.exit(failed === 0 ? 0 : 1);
+// Empty selection is a run error: zero cases must not exit green.
+process.exit(failed === 0 && cases.length > 0 ? 0 : 1);

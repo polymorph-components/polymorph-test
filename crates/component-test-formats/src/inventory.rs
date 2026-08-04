@@ -8,7 +8,10 @@ use wasmparser::{Parser, Payload};
 
 use crate::lockfile::{CaseEntry, GeneratedEntry};
 
-pub const TAGS_SECTION: &str = "component-test:tags@0.1";
+/// The custom-section name (canonical constant lives in core; the one
+/// copy that cannot reference it is `component-test-sdk`'s `case!`
+/// macro_rules literal).
+pub use component_test_core::name::TAGS_SECTION;
 
 /// Collect raw tags-section bytes from a component/module, nested
 /// modules and components included.

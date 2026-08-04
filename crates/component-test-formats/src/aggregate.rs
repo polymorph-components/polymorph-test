@@ -53,7 +53,7 @@ impl Aggregate {
         self.results
             .values()
             .flat_map(|m| m.values())
-            .any(|r| matches!(r.status, Status::Fail | Status::NotReached))
+            .any(|r| r.status.failing())
     }
 }
 
@@ -139,6 +139,34 @@ pub fn aggregate(
     let mut results: BTreeMap<String, BTreeMap<String, CaseResult>> = BTreeMap::new();
     let mut seen_targets = BTreeSet::new();
 
+    // Applicability lookup, built once (not per target — the corpus
+    // scale is thousands of cases × several targets): case name →
+    // validated Tags, plus per-prefix Tags for generated rows. Entries
+    // whose tag sets don't validate are skipped exactly as the old
+    // per-result construction skipped them (lockfile.validate already
+    // reported those).
+    let case_tags: BTreeMap<std::borrow::Cow<'_, str>, Tags> = lockfile
+        .case
+        .iter()
+        .filter_map(|c| Tags::new(c.tags.clone()).ok().map(|t| (c.name.as_str(), t)))
+        .collect();
+    let gen_tags: BTreeMap<&str, Tags> = lockfile
+        .generated
+        .iter()
+        .filter_map(|g| {
+            Tags::new(g.tags.clone())
+                .ok()
+                .map(|t| (g.prefix.as_str(), t))
+        })
+        .collect();
+    let tags_for = |case: &str| -> Option<&Tags> {
+        case_tags.get(case).or_else(|| {
+            lockfile
+                .prefix_of(case)
+                .and_then(|g| gen_tags.get(g.prefix.as_str()))
+        })
+    };
+
     for (target, doc) in docs {
         if !seen_targets.insert(target.as_str()) {
             errors.push(format!("target `{target}`: multiple result sets"));
@@ -175,13 +203,17 @@ pub fn aggregate(
                 doc.envelope.suite.name, lockfile.suite.name
             ));
         }
-        let missing = match manifest.missing(target) {
-            Some(missing) => missing,
+        let missing: Option<&[String]> = match manifest.missing(target) {
+            Some(missing) => Some(missing),
             None => {
                 errors.push(format!(
                     "target `{target}`: not declared in the manifest [targets] table"
                 ));
-                &[]
+                // No declared missing-set to judge against: skip the
+                // applicability checks below rather than fabricating
+                // one and cascading a false drift error per tagged
+                // case on top of the root cause.
+                None
             }
         };
 
@@ -203,35 +235,26 @@ pub fn aggregate(
 
         // Applicability drift: the reported status must agree with the
         // case's tags applied to this target's missing-features.
-        let case_tags: BTreeMap<std::borrow::Cow<'_, str>, &Vec<component_test_core::Tag>> =
-            lockfile
-                .case
-                .iter()
-                .map(|c| (c.name.as_str(), &c.tags))
-                .collect();
-        for r in &doc.results {
-            let tags = case_tags
-                .get(r.case.as_str())
-                .copied()
-                .or_else(|| lockfile.prefix_of(&r.case).map(|g| &g.tags));
-            let Some(tags) = tags else { continue }; // coverage already flagged
-            let Ok(tags) = Tags::new(tags.clone()) else {
-                continue;
-            };
-            let applies = tags.applies(missing);
-            match (applies, r.status) {
-                (false, Status::NotApplicable) | (false, Status::NotReached) => {}
-                (false, _) => errors.push(format!(
-                    "target `{target}`: case `{}` reported {:?} but its tags make it \
-                     not applicable given missing-features {missing:?}",
-                    r.case, r.status
-                )),
-                (true, Status::NotApplicable) => errors.push(format!(
-                    "target `{target}`: case `{}` reported not-applicable but its tags \
-                     apply given missing-features {missing:?}",
-                    r.case
-                )),
-                (true, _) => {}
+        if let Some(missing) = missing {
+            for r in &doc.results {
+                let Some(tags) = tags_for(&r.case) else {
+                    continue; // coverage already flagged
+                };
+                let applies = tags.applies(missing);
+                match (applies, r.status) {
+                    (false, Status::NotApplicable) | (false, Status::NotReached) => {}
+                    (false, _) => errors.push(format!(
+                        "target `{target}`: case `{}` reported {:?} but its tags make it \
+                         not applicable given missing-features {missing:?}",
+                        r.case, r.status
+                    )),
+                    (true, Status::NotApplicable) => errors.push(format!(
+                        "target `{target}`: case `{}` reported not-applicable but its tags \
+                         apply given missing-features {missing:?}",
+                        r.case
+                    )),
+                    (true, _) => {}
+                }
             }
         }
 
@@ -440,22 +463,27 @@ mod tests {
 
     #[test]
     fn unknown_target_is_error() {
+        // The undeclared target reports a full, plausible result set
+        // (including a not-applicable tagged case): exactly ONE error
+        // must come out of it — the root cause — not a per-case
+        // applicability cascade judged against a fabricated
+        // missing-set.
         let agg = aggregate(
             &corpus_lock(),
             &manifest(MANIFEST),
             &[
                 ("native".into(), native_doc()),
                 ("sim".into(), sim_doc()),
-                ("mystery".into(), doc("mystery", vec![])),
+                ("mystery".into(), doc("mystery", sim_doc().results)),
             ],
         );
-        assert!(
-            agg.errors
-                .iter()
-                .any(|e| e.contains("mystery") && e.contains("not declared")),
-            "{:?}",
-            agg.errors
-        );
+        let mystery: Vec<&String> = agg
+            .errors
+            .iter()
+            .filter(|e| e.contains("mystery"))
+            .collect();
+        assert_eq!(mystery.len(), 1, "{:?}", agg.errors);
+        assert!(mystery[0].contains("not declared"), "{:?}", agg.errors);
     }
 
     #[test]

@@ -93,11 +93,11 @@ against `expected/` — when you intentionally change output or suite
 cases, regenerate the affected `expected/` files and review the diff.
 The underlying commands, for when you need them directly:
 
-Host crates (fast, run this always):
+Host crates (fast, run this always; workspace `default-members`
+excludes the wasm-only `components/*`):
 
 ```sh
-cargo test --workspace --exclude sample-suite --exclude provider \
-           --exclude runner-cli --exclude fixture-suite
+cargo test
 ```
 
 Guest components:
@@ -145,9 +145,9 @@ surface). Never hand-edit.
 
 - Rust 2021, workspace deps in the root `Cargo.toml`. `crates/` =
   host-side (must build and test natively); `components/` = guest-side
-  (built for wasm32-wasip2 only; excluded from the host test/lint
-  commands above — a native `cargo test` on them proves nothing even
-  where it happens to compile).
+  (built for wasm32-wasip2 only; excluded via workspace
+  `default-members` — a native `cargo test` on them proves nothing
+  even where it happens to compile).
 - One-line trap/fail details; diagnostics are the sideband for detail.
 - Commit style: imperative summary line, body explains *why* and records
   findings. Verification results belong in the commit body when they

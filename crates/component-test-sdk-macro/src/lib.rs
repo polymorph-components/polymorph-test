@@ -249,10 +249,13 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
                 .map(|g| record_line(&format!("{}/*", g.prefix), &g.tags)),
         )
         .map(|line| {
+            // Canonical section name from core (interpolated as a
+            // literal — attribute values can't reference consts).
+            let section = component_test_core::name::TAGS_SECTION;
             quote! {
                 const _: () = {
                     const RECORD: &str = #line;
-                    #[link_section = "component-test:tags@0.1"]
+                    #[link_section = #section]
                     #[used]
                     static TAGS_RECORD: [u8; RECORD.len()] =
                         ::component_test_sdk::str_to_array::<{ RECORD.len() }>(RECORD);
@@ -604,22 +607,25 @@ fn validate(cases: &[CaseDef], gens: &[GenDef]) -> Result<()> {
     }
 
     let mut seen = BTreeSet::new();
-    let mut positive: BTreeSet<String> = BTreeSet::new();
-    let mut negative: BTreeSet<String> = BTreeSet::new();
-    let sort = |tags: &[String], pos: &mut BTreeSet<String>, neg: &mut BTreeSet<String>| {
-        for t in tags {
-            match t.strip_prefix('!') {
-                Some(f) => neg.insert(f.to_string()),
-                None => pos.insert(t.clone()),
-            };
-        }
+    // Tag sets with their declaration spans, parsed through the core
+    // model (already validated at merge time; the map_err is a
+    // belt-and-braces path). Shared with core's decline-pair helper so
+    // the rule cannot drift from the lockfile/runner enforcement.
+    let mut tag_sets: Vec<(proc_macro2::Span, Vec<component_test_core::Tag>)> = Vec::new();
+    let parse_tags = |tags: &[String], span: proc_macro2::Span| {
+        tags.iter()
+            .map(|t| {
+                component_test_core::Tag::parse(t)
+                    .map_err(|e| Error::new(span, format!("invalid tag `{t}`: {e}")))
+            })
+            .collect::<Result<Vec<_>>>()
     };
     for c in cases {
         CaseName::parse(&c.name).map_err(|e| Error::new(c.span, format!("`{}`: {e}", c.name)))?;
         if !seen.insert(c.name.clone()) {
             return Err(Error::new(c.span, format!("duplicate case `{}`", c.name)));
         }
-        sort(&c.tags, &mut positive, &mut negative);
+        tag_sets.push((c.span, parse_tags(&c.tags, c.span)?));
     }
     for g in gens {
         for seg in g.prefix.split('/') {
@@ -636,14 +642,11 @@ fn validate(cases: &[CaseDef], gens: &[GenDef]) -> Result<()> {
                 format!("duplicate generator prefix `{}`", g.prefix),
             ));
         }
-        sort(&g.tags, &mut positive, &mut negative);
+        tag_sets.push((g.span, parse_tags(&g.tags, g.span)?));
     }
     for c in cases {
         for g in gens {
-            if c.name
-                .strip_prefix(&g.prefix)
-                .is_some_and(|rest| rest.starts_with('/'))
-            {
+            if component_test_core::name::is_under(&c.name, &g.prefix) {
                 return Err(Error::new(
                     c.span,
                     format!(
@@ -662,11 +665,7 @@ fn validate(cases: &[CaseDef], gens: &[GenDef]) -> Result<()> {
             } else {
                 (b, a)
             };
-            if long
-                .prefix
-                .strip_prefix(&short.prefix)
-                .is_some_and(|rest| rest.starts_with('/'))
-            {
+            if component_test_core::name::is_under(&long.prefix, &short.prefix) {
                 return Err(Error::new(
                     long.span,
                     format!(
@@ -678,10 +677,23 @@ fn validate(cases: &[CaseDef], gens: &[GenDef]) -> Result<()> {
             }
         }
     }
-    let unpaired: Vec<&String> = positive.difference(&negative).collect();
+    let unpaired = component_test_core::tags::unpaired_positive_features(
+        tag_sets.iter().map(|(_, tags)| tags.as_slice()),
+    );
     if !unpaired.is_empty() {
+        // Anchor at the first case/generator carrying an unpaired
+        // positive tag — in a large suite, call_site (the attribute)
+        // says nothing about *where* the missing decline is owed.
+        let anchor = tag_sets
+            .iter()
+            .find(|(_, tags)| {
+                tags.iter()
+                    .any(|t| !t.is_negative() && unpaired.iter().any(|f| f == t.feature()))
+            })
+            .map(|(span, _)| *span)
+            .unwrap_or_else(proc_macro2::Span::call_site);
         return Err(Error::new(
-            proc_macro2::Span::call_site(),
+            anchor,
             format!(
                 "decline-pair lint: feature(s) {} have positively-tagged cases but no \
                  `!feature` decline-asserting case. Add a case tagged with the negated \

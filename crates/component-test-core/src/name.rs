@@ -94,6 +94,16 @@ pub fn is_wit_label(s: &str) -> Option<&'static str> {
     None
 }
 
+/// Is `name` strictly under `prefix` — i.e. `prefix` plus at least one
+/// more `/`-joined segment? The shared predicate behind generated-row
+/// coverage (lockfile `prefix_of`, the runner's inventory fallback,
+/// the macro's overlap lints): equality is *not* under (a row's leaf
+/// must extend the prefix).
+pub fn is_under(name: &str, prefix: &str) -> bool {
+    name.strip_prefix(prefix)
+        .is_some_and(|rest| rest.starts_with('/'))
+}
+
 /// A validated case name: a (possibly empty) grouping prefix plus a
 /// single-segment leaf, both sharing refcounted buffers. Invariant:
 /// slashes appear only in the prefix, so representation is canonical

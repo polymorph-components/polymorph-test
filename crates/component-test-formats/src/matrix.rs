@@ -151,7 +151,7 @@ pub fn render(agg: &Aggregate) -> String {
             continue;
         };
         for r in results.values() {
-            if !matches!(r.status, Status::Fail | Status::NotReached) {
+            if !r.status.failing() {
                 continue;
             }
             any = true;

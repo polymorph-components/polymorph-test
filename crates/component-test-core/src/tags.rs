@@ -191,6 +191,33 @@ impl Tags {
     }
 }
 
+/// The decline-pair computation shared by every enforcement surface
+/// (the `#[suite]` macro at expansion, `Lockfile::validate` over the
+/// static inventory, the runner over *materialized* cases): features
+/// named by at least one positive mark but by no negative mark, sorted.
+/// Callers own their context-specific error text — the rule must stay
+/// identical, the wording legitimately differs per surface.
+pub fn unpaired_positive_features<'a, I>(tag_sets: I) -> Vec<String>
+where
+    I: IntoIterator<Item = &'a [Tag]>,
+{
+    let mut positive = std::collections::BTreeSet::new();
+    let mut negative = std::collections::BTreeSet::new();
+    for tags in tag_sets {
+        for tag in tags {
+            if tag.is_negative() {
+                negative.insert(tag.feature());
+            } else {
+                positive.insert(tag.feature());
+            }
+        }
+    }
+    positive
+        .difference(&negative)
+        .map(|f| f.to_string())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,5 +277,23 @@ mod tests {
         assert!(multi.applies(&["c"]));
         assert!(!multi.applies(&["a", "c"]));
         assert!(!multi.applies::<&str>(&[]));
+    }
+
+    #[test]
+    fn unpaired_positive() {
+        let t = |s: &str| Tag::parse(s).unwrap();
+        let paired = [vec![t("hsm")], vec![t("!hsm")]];
+        assert!(unpaired_positive_features(paired.iter().map(Vec::as_slice)).is_empty());
+
+        let unpaired = [vec![t("hsm"), t("aes")], vec![t("!hsm")]];
+        assert_eq!(
+            unpaired_positive_features(unpaired.iter().map(Vec::as_slice)),
+            ["aes"]
+        );
+
+        // A negative-only feature needs no pair (decline coverage
+        // without a positive user is legal, if odd).
+        let negative_only = [vec![t("!sim")]];
+        assert!(unpaired_positive_features(negative_only.iter().map(Vec::as_slice)).is_empty());
     }
 }

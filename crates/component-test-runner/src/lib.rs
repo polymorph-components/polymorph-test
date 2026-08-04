@@ -5,6 +5,10 @@
 //! instance (instance-per-case). The suite's exports are async-lifted
 //! (component-model-async), so calls go through wasmtime's concurrent
 //! API; host-side `diagnostic` is a concurrent host function.
+//!
+//! Env knobs: `COMPONENT_TEST_PROFILE=1` prints per-session enumeration
+//! timings to stderr (double-enumerates each session to separate
+//! registry construction from lifting cost).
 
 use std::path::Path;
 
@@ -403,19 +407,47 @@ impl<D: RunnerView + 'static> Runner<D> {
                  feature scheduling and drift checks disabled"
             );
         }
-        let tags_of = |name: &str| -> Option<Tags> {
-            let inv = inventory.as_ref()?;
-            if let Some(e) = inv.cases.iter().find(|e| e.name.as_str() == name) {
-                return Some(Tags::new(e.tags.clone()).expect("validated by inventory parse"));
+        let tags_of = {
+            // O(1) exact lookup + short prefix-list fallback, built
+            // once: the pre-pass below consults tags three times per
+            // name (drift check, decline-pair, plan), which at
+            // conformance-corpus scale (~10^4 cases) made the old
+            // linear scan quadratic. `Tags` clones are refcount bumps.
+            let exact: Option<std::collections::HashMap<std::borrow::Cow<'_, str>, Tags>> =
+                inventory.as_ref().map(|inv| {
+                    inv.cases
+                        .iter()
+                        .map(|e| {
+                            (
+                                e.name.as_str(),
+                                Tags::new(e.tags.clone()).expect("validated by inventory parse"),
+                            )
+                        })
+                        .collect()
+                });
+            let generated: Option<Vec<(&str, Tags)>> = inventory.as_ref().map(|inv| {
+                inv.generated
+                    .iter()
+                    .map(|g| {
+                        (
+                            g.prefix.as_str(),
+                            Tags::new(g.tags.clone()).expect("validated by inventory parse"),
+                        )
+                    })
+                    .collect()
+            });
+            move |name: &str| -> Option<Tags> {
+                let exact = exact.as_ref()?;
+                if let Some(tags) = exact.get(name) {
+                    return Some(tags.clone());
+                }
+                generated
+                    .as_ref()?
+                    .iter()
+                    .filter(|(prefix, _)| component_test_core::name::is_under(name, prefix))
+                    .max_by_key(|(prefix, _)| prefix.len())
+                    .map(|(_, tags)| tags.clone())
             }
-            inv.generated
-                .iter()
-                .filter(|g| {
-                    name.strip_prefix(g.prefix.as_str())
-                        .is_some_and(|rest| rest.starts_with('/'))
-                })
-                .max_by_key(|g| g.prefix.len())
-                .map(|g| Tags::new(g.tags.clone()).expect("validated by inventory parse"))
         };
 
         if !human {
@@ -475,20 +507,10 @@ impl<D: RunnerView + 'static> Runner<D> {
             // zero-row generator must not vacuously satisfy the static
             // lint (a `!feature` prefix record that produced no cases
             // provides no decline coverage).
-            let mut positive = std::collections::BTreeSet::new();
-            let mut negative = std::collections::BTreeSet::new();
-            for name in &names {
-                if let Some(tags) = tags_of(name) {
-                    for tag in tags.iter() {
-                        if tag.is_negative() {
-                            negative.insert(tag.feature().to_string());
-                        } else {
-                            positive.insert(tag.feature().to_string());
-                        }
-                    }
-                }
-            }
-            let unpaired: Vec<&String> = positive.difference(&negative).collect();
+            let materialized: Vec<Tags> = names.iter().filter_map(|n| tags_of(n)).collect();
+            let unpaired = component_test_core::tags::unpaired_positive_features(
+                materialized.iter().map(|t| t.as_slice()),
+            );
             if !unpaired.is_empty() {
                 bail!(
                     "decline-pair check: feature(s) {unpaired:?} have materialized \

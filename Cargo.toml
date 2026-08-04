@@ -12,6 +12,18 @@ members = [
     "components/runner-cli",
     "components/sample-suite",
 ]
+# Host-side crates only: `components/*` build for wasm32-wasip2 and a
+# native `cargo test` on them proves nothing even where it compiles.
+# Bare `cargo test` / `cargo clippy` therefore cover exactly the crates
+# the CI host job checks — no exclusion lists to keep in sync.
+default-members = [
+    "crates/component-test-core",
+    "crates/component-test-formats",
+    "crates/component-test-sdk",
+    "crates/component-test-sdk-macro",
+    "crates/component-test-cli",
+    "crates/component-test-runner",
+]
 
 [workspace.package]
 version = "0.1.0"

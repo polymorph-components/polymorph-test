@@ -124,6 +124,13 @@ impl Status {
         matches!(self, Status::Pass | Status::Fail | Status::Skipped)
     }
 
+    /// Does this status make a run/corpus failing? The single
+    /// definition behind `Aggregate::has_failures`, the CLI's fold and
+    /// aggregate exit codes, and the matrix Failures section.
+    pub fn failing(self) -> bool {
+        matches!(self, Status::Fail | Status::NotReached)
+    }
+
     /// The kebab-case schema word for this status (the wire vocabulary;
     /// use it anywhere a status is shown to a human).
     pub fn word(self) -> &'static str {

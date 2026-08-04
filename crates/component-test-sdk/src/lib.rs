@@ -206,10 +206,12 @@ impl Registry {
     /// invariant is what the runner's drift cross-check relies on).
     /// Panics on violations — harness bugs.
     pub fn generated_named(&mut self, row_prefix: &str, tags: &Tags, name: CaseName, run: CaseFn) {
-        let under_row = name.prefix().is_some_and(|p| {
-            p.strip_prefix(row_prefix)
-                .is_some_and(|r| r.is_empty() || r.starts_with('/'))
-        });
+        // Deliberately looser than `core::name::is_under`: the case's
+        // *prefix* may equal the row prefix exactly (a row leaf is one
+        // or more segments appended below the row).
+        let under_row = name
+            .prefix()
+            .is_some_and(|p| p == row_prefix || component_test_core::name::is_under(p, row_prefix));
         if !under_row {
             panic!("generated case `{name}` is not under its row prefix `{row_prefix}`");
         }
@@ -240,6 +242,9 @@ macro_rules! case {
             assert!($crate::const_valid_name($name), "invalid case name literal");
             $(assert!($crate::const_valid_tag($mark), "invalid tag literal");)*
             const RECORD: &str = concat!($name $(, " ", $mark)*, "\n");
+            // The one copy of the section name that cannot reference
+            // `component_test_core::name::TAGS_SECTION` (macro_rules
+            // attribute values must be literal). Keep in sync.
             #[link_section = "component-test:tags@0.1"]
             #[used]
             static TAGS_RECORD: [u8; RECORD.len()] =
