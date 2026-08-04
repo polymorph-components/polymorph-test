@@ -1,0 +1,24 @@
+test fixture/trap/before ...
+    diag: before the storm
+test fixture/trap/before: PASS
+test fixture/trap/boom ...
+    diag: about to trap
+test fixture/trap/boom: FAIL: trap: wasm trap: wasm `unreachable` instruction executed
+test fixture/trap/after ...
+    diag: still alive in a fresh instance
+test fixture/trap/after: PASS
+test fixture/hsm/attest: N/A (hsm)
+test fixture/hsm/declined ...
+    diag: asserting hsm is declined, not half-served
+test fixture/hsm/declined: PASS
+test fixture/nested/deep/leaf ...
+    diag: two levels down
+test fixture/nested/deep/leaf: PASS
+test fixture/gen/tc1 ...
+    diag: generated case 1
+test fixture/gen/tc1: PASS
+test fixture/gen/tc2 ...
+    diag: generated case 2
+test fixture/gen/tc2: PASS
+
+result: 6 passed, 1 failed, 0 skipped, 1 not applicable, 8 total

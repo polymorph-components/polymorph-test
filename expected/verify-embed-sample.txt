@@ -1,0 +1,14 @@
+test sample/math/add ...
+    diag: computing 2 + 2
+    diag: got 4
+test sample/math/add: PASS
+test sample/math/mul ...
+    diag: computing 6 * 9
+    diag: got 54, expecting the ultimate answer
+test sample/math/mul: FAIL: 6 * 9: expected 42, got 54
+test sample/token/attest ...
+    diag: probing for hardware token
+    diag: token unavailable; asserting clean error
+test sample/token/attest: SKIP: token unavailable at run time; asserted attestation fails cleanly (no hang, no partial attestation)
+
+result: 1 passed, 1 failed, 1 skipped, 0 not applicable, 3 total

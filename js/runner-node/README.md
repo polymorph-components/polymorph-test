@@ -10,6 +10,7 @@ blocked in jco today — see `docs/findings.md` #12–13).
 cargo build --target wasm32-wasip2 --release -p sample-suite   # from repo root
 npm install
 npx @bytecodealliance/jco transpile ../../target/wasm32-wasip2/release/sample_suite.wasm \
+  --name suite \
   --async-mode jspi \
   --map 'lann:component-test/test-context@0.1.0=../context.js' \
   -o suite

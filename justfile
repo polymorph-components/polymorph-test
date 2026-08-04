@@ -35,42 +35,84 @@ build:
         -p sample-suite -p provider -p runner-cli -p fixture-suite
 
 # --- verification matrix (AGENTS.md "Build & verify") -----------------
+#
+# Every path asserts the exit code AND diffs output byte-for-byte
+# against expected/ — exit codes alone are blind to verdict flips,
+# scheduling breakage, and dropped case events (a module-not-found
+# crash exits 1 just like a failing suite does).
 
 # Path 1: wasmtime host-embed runner (tags scheduling + trap path).
 verify-embed: build
-    cargo run -q -p component-test-runner --bin ct-runner -- \
-        {{release_dir}}/sample_suite.wasm; test $? -eq 1
-    cargo run -q -p component-test-runner --bin ct-runner -- \
-        {{release_dir}}/fixture_suite.wasm --missing hsm; test $? -eq 1
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ct() { cargo run -q -p component-test-runner --bin ct-runner -- "$@"; }
+    out=$(ct {{release_dir}}/sample_suite.wasm) && code=0 || code=$?
+    test "$code" -eq 1
+    diff -u expected/verify-embed-sample.txt <(printf '%s\n' "$out")
+    out=$(ct {{release_dir}}/fixture_suite.wasm --missing hsm) && code=0 || code=$?
+    test "$code" -eq 1
+    diff -u expected/verify-embed-fixture.txt <(printf '%s\n' "$out")
+    echo "verify-embed: output matches expected/"
 
 # Path 2: composed wasi:cli runner (bundle-then-plug).
 verify-compose: build
-    cd examples/compose && wac compose \
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd examples/compose
+    wac compose \
         -d lann:provider-impl=../../{{release_dir}}/provider.wasm \
         -d lann:sample-suite=../../{{release_dir}}/sample_suite.wasm \
         -o bundle.wasm bundle.wac
-    cd examples/compose && wac plug --plug bundle.wasm \
+    wac plug --plug bundle.wasm \
         ../../{{release_dir}}/runner_cli.wasm -o composed.wasm
-    cd examples/compose && wasmtime run {{wasmtime_flags}} composed.wasm; \
-        test $? -eq 1
+    out=$(wasmtime run {{wasmtime_flags}} composed.wasm) && code=0 || code=$?
+    test "$code" -eq 1
+    diff -u ../../expected/verify-run-sample.txt <(printf '%s\n' "$out")
+    echo "verify-compose: output matches expected/"
 
 # Path 3: jco-node runner (suite transpiled alone; runner-is-provider).
 verify-node: build
-    cd js/runner-node && npm install --silent
-    cd js/runner-node && npx --yes @bytecodealliance/jco transpile \
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd js/runner-node
+    npm install --silent
+    npx --yes @bytecodealliance/jco transpile \
         ../../{{release_dir}}/sample_suite.wasm \
+        --name suite \
         --async-mode jspi \
         --map 'lann:component-test/test-context@0.1.0=../context.js' \
         -o suite > /dev/null
-    cd js/runner-node && node --experimental-wasm-jspi \
-        runner-host-provider.mjs; test $? -eq 1
+    out=$(node --experimental-wasm-jspi runner-host-provider.mjs) && code=0 || code=$?
+    test "$code" -eq 1
+    diff -u ../../expected/verify-run-sample.txt <(printf '%s\n' "$out")
+    echo "verify-node: output matches expected/"
 
-# Path 4: inventory + results pipeline (lock check, JSONL fold).
+# Path 4: inventory + results pipeline (lock check, JSONL fold). The
+# fixture leg exercises the JSONL wire shape for trap provenance,
+# not-applicable scheduling, and generated rows; the runner's exit is
+# captured separately so a mid-stream crash can't hide behind fold's.
 verify-pipeline: build
-    cargo run -q -p component-test-runner --bin ct-runner -- \
-        {{release_dir}}/sample_suite.wasm --jsonl \
-        | cargo run -q -p component-test-cli -- fold \
-            components/sample-suite/tests.lock; test $? -eq 1
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ct() { cargo run -q -p component-test-runner --bin ct-runner -- "$@"; }
+    fold() { cargo run -q -p component-test-cli -- fold "$@"; }
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    ct {{release_dir}}/sample_suite.wasm --jsonl > "$tmp/sample.jsonl" && code=0 || code=$?
+    test "$code" -eq 1
+    fold components/sample-suite/tests.lock < "$tmp/sample.jsonl" \
+        > "$tmp/sample-fold.txt" && code=0 || code=$?
+    test "$code" -eq 1
+    diff -u expected/verify-pipeline-sample-fold.txt "$tmp/sample-fold.txt"
+    ct {{release_dir}}/fixture_suite.wasm --jsonl --missing hsm \
+        > "$tmp/fixture.jsonl" && code=0 || code=$?
+    test "$code" -eq 1
+    sed -E 's/"artifact-sha256":"[0-9a-f]{64}"/"artifact-sha256":"<sha256>"/' \
+        "$tmp/fixture.jsonl" | diff -u expected/verify-pipeline-fixture.jsonl -
+    fold components/fixture-suite/tests.lock < "$tmp/fixture.jsonl" \
+        > "$tmp/fixture-fold.txt" && code=0 || code=$?
+    test "$code" -eq 1
+    diff -u expected/verify-pipeline-fixture-fold.txt "$tmp/fixture-fold.txt"
+    echo "verify-pipeline: output matches expected/"
 
 # --- lockfiles ---------------------------------------------------------
 
@@ -83,8 +125,7 @@ lock-check: build
         {{release_dir}}/fixture_suite.wasm \
         --check components/fixture-suite/tests.lock
 
-# Regenerate lockfiles after suite changes (commit the diff — the diff
-# is the review surface).
+# Regenerate lockfiles after suite changes (commit the diff for review).
 lock-update: build
     cargo run -q -p component-test-cli -- lock \
         {{release_dir}}/sample_suite.wasm -o components/sample-suite/tests.lock
