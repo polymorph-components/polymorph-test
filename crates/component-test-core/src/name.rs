@@ -419,7 +419,7 @@ mod tests {
         assert_eq!(parsed.to_string(), split.to_string());
         assert_eq!(split.as_str(), "aes-gcm/wycheproof/tc305/whole");
         assert_eq!(split.leaf(), "whole");
-        assert_eq!(split.prefix().as_deref(), Some("aes-gcm/wycheproof/tc305"));
+        assert_eq!(split.prefix(), Some("aes-gcm/wycheproof/tc305"));
         // grammar still enforced through the split constructor
         assert!(CaseName::prefixed(arcstr::literal!("375"), arcstr::literal!("x")).is_err());
         assert!(CaseName::prefixed(arcstr::literal!("a"), arcstr::literal!("B")).is_err());
@@ -452,7 +452,7 @@ mod tests {
     #[test]
     fn accessors() {
         let n = CaseName::parse("sample/math/add").unwrap();
-        assert_eq!(n.prefix().as_deref(), Some("sample/math"));
+        assert_eq!(n.prefix(), Some("sample/math"));
         assert_eq!(n.leaf(), "add");
         let n = CaseName::parse("solo").unwrap();
         assert_eq!(n.prefix(), None);
