@@ -522,6 +522,15 @@ impl<D: RunnerView + 'static> Runner<D> {
                 (index, name, action)
             })
             .collect();
+        // Same normative rule as the zero-enumeration guard above: a
+        // `--only` substring matching nothing is an empty selection (a
+        // typo'd filter must not exit green with "0 total").
+        if plan.is_empty() {
+            bail!(
+                "--only `{}` matches no cases (empty selection is a run error)",
+                only.unwrap_or_default()
+            );
+        }
 
         // Parallel path: workers own stores; results are collected and
         // emitted in census order below.

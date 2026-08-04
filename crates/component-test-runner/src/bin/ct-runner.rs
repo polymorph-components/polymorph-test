@@ -1,6 +1,7 @@
 //! Thin CLI over the runner library:
 //! `ct-runner <suite.wasm> [--jsonl] [--missing f1,f2,...] [--jobs N]
-//! [--cases-per-instance N]`.
+//! [--cases-per-instance N] [--target key] [--only substring]
+//! [--enumerate]`.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -19,7 +20,8 @@ fn main() -> ExitCode {
 }
 
 const USAGE: &str = "usage: ct-runner <suite.wasm> [--jsonl] [--missing f1,f2,...] \
-                     [--jobs N] [--cases-per-instance N]";
+                     [--jobs N] [--cases-per-instance N] [--target key] \
+                     [--only substring] [--enumerate]";
 
 fn run() -> Result<ExitCode> {
     let mut suite: Option<PathBuf> = None;
