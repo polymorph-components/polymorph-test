@@ -222,9 +222,7 @@ pub fn aggregate(
     for (target, decl) in &manifest.targets {
         if !seen_targets.contains(target.as_str()) {
             if decl.optional {
-                warnings.push(format!(
-                    "target `{target}`: no results (declared optional)"
-                ));
+                warnings.push(format!("target `{target}`: no results (declared optional)"));
             } else {
                 errors.push(format!("target `{target}`: no results"));
             }
@@ -401,7 +399,11 @@ mod tests {
             optional = true
         "#,
         );
-        let agg = aggregate(&corpus_lock(), &optional, &[("native".into(), native_doc())]);
+        let agg = aggregate(
+            &corpus_lock(),
+            &optional,
+            &[("native".into(), native_doc())],
+        );
         assert!(agg.errors.is_empty(), "{:?}", agg.errors);
         assert!(
             agg.warnings
