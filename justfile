@@ -9,7 +9,7 @@ _default:
     @just --list --unsorted
 
 # Everything: host tests, component builds, all four verification paths.
-all: build test test-wasm lock-check verify-embed verify-compose verify-node verify-pipeline
+all: build test test-wasm lock-check verify-embed verify-compose verify-node verify-pipeline verify-aggregate
 
 # CI's native job: formatting, clippy, host tests, WIT validation.
 host-checks: fmt-check lint test wit-check
@@ -130,6 +130,31 @@ verify-pipeline: build
     test "$code" -eq 1
     diff -u expected/verify-pipeline-fixture-fold.txt "$tmp/fixture-fold.txt"
     echo "verify-pipeline: output matches expected/"
+
+# Path 5: cross-target aggregation (examples/aggregate): lock, run the
+# fixture against two declared targets, join + validate, diff the
+# matrix. Exercises the artifact-sha256 binding end to end (the
+# lockfile is regenerated from the artifact that runs).
+verify-aggregate: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ct() { cargo run -q -p component-test-runner --bin ct-runner -- "$@"; }
+    cli() { cargo run -q -p component-test-cli -- "$@"; }
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    cli lock {{release_dir}}/fixture_suite.wasm -o "$tmp/tests.lock" > /dev/null
+    ct {{release_dir}}/fixture_suite.wasm --jsonl --target native \
+        > "$tmp/native.jsonl" && code=0 || code=$?
+    test "$code" -eq 1
+    ct {{release_dir}}/fixture_suite.wasm --jsonl --target sim --missing hsm \
+        > "$tmp/sim.jsonl" && code=0 || code=$?
+    test "$code" -eq 1
+    cli aggregate --lock "$tmp/tests.lock" \
+        --manifest examples/aggregate/targets.toml \
+        --results "native=$tmp/native.jsonl" --results "sim=$tmp/sim.jsonl" \
+        -o "$tmp/matrix.md" > "$tmp/summary.txt" && code=0 || code=$?
+    test "$code" -eq 1  # the fixture's trap case fails on both targets
+    diff -u expected/verify-aggregate-matrix.md "$tmp/matrix.md"
+    echo "verify-aggregate: matrix matches expected/"
 
 # --- lockfiles ---------------------------------------------------------
 

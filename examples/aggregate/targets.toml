@@ -1,0 +1,14 @@
+# Target capability manifest for the fixture-suite walkthrough: two
+# targets, one gated feature. `native` serves hsm; `sim` declares it
+# missing, so hsm-tagged cases are not-applicable there and the
+# `!hsm` decline probe runs there instead.
+version = "0.1"
+
+[features.hsm]
+kind = "gated"
+
+[targets.native]
+missing-features = []
+
+[targets.sim]
+missing-features = ["hsm"]

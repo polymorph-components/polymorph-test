@@ -6,15 +6,29 @@ contract between test **suites** (components that carry test cases) and test
 makes multi-target test operations tractable — inventory tracking, a
 canonical results format, aggregation, and CI packaging.
 
-Status: proposal. The WIT below is the seed; everything else is tracked in
-the [issues](../../issues). How the pieces layer together is described in
-[ARCHITECTURE.md](ARCHITECTURE.md). Layout: [`crates/`](crates/)
-(host-side Rust: core model, formats, guest SDK, CLI, host-embed
-runner), [`components/`](components/) (guest components: reference
-provider, composed CLI runner core, sample and fixture suites),
-[`js/`](js/) (Node runner via jco), [`examples/compose/`](examples/compose/)
-(composition walkthrough), [`docs/findings.md`](docs/findings.md)
-(toolchain findings log).
+Status: implemented and in active use (the M1 webcrypto-conformance
+migration runs on it); the WIT contract below is frozen, and design
+history lives in the [issues](../../issues). How the pieces layer
+together is described in [ARCHITECTURE.md](ARCHITECTURE.md). Layout:
+[`crates/`](crates/) (host-side Rust: core model, formats, results
+schema, guest SDK, CLI, host-embed runner), [`components/`](components/)
+(guest components: reference provider, composed CLI runner core, sample
+and fixture suites), [`js/`](js/) (Node runner via jco),
+[`examples/compose/`](examples/compose/) (composition walkthrough),
+[`examples/aggregate/`](examples/aggregate/) (cross-target aggregation
+walkthrough), [`docs/findings.md`](docs/findings.md) (toolchain
+findings log).
+
+Quickstart (toolchain in [AGENTS.md](AGENTS.md); `just all` runs the
+full verification matrix):
+
+```sh
+just build
+cargo run -p component-test-runner --bin ct-runner -- \
+  target/wasm32-wasip2/release/sample_suite.wasm
+```
+
+Writing a suite: [`components/sample-suite/README.md`](components/sample-suite/README.md).
 
 ## The contract
 

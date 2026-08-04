@@ -7,5 +7,7 @@ edition.workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
-wit-bindgen = { workspace = true }
+# Suites need only the SDK: it owns the contract bindings. A suite
+# that imports a system-under-test adds its own wit-bindgen +
+# `wit_bindgen::generate!` for that surface only.
 component-test-sdk = { workspace = true }
