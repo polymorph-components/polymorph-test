@@ -47,7 +47,7 @@ impl fmt::Display for Failure {
 ///
 /// `#[non_exhaustive]`: the results schema evolves additively (frozen
 /// surface #3), so downstream matches must carry a wildcard arm.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 #[cfg_attr(
     feature = "serde",
@@ -59,6 +59,11 @@ pub enum Provenance {
     Returned,
     /// A wasm trap attributed to this case; the instance is poisoned.
     Trap,
-    /// The runner's hang guard tripped; the instance was abandoned.
-    HangGuard,
+    /// The runner killed the case for exceeding a limit and abandoned
+    /// the instance. The payload names the limit — an open vocabulary
+    /// (kebab-case): `execution-budget` and `case-timeout` today; room
+    /// for e.g. `memory` or `fuel` without schema change. Externally
+    /// tagged on the wire: `{"limit-exceeded":"execution-budget"}`
+    /// (unit provenances stay plain strings).
+    LimitExceeded(String),
 }

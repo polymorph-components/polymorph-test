@@ -60,6 +60,7 @@ components/           guest components (build with --target wasm32-wasip2)
   fixture-suite            runner fixture (trap, tagged pair, generated row)
   drift-fixture            broken by design: raw registration, drift check
   zero-gen-fixture         broken by design: zero-row decline generator
+  hang-fixture             broken by design: CPU spin + async wedge (#45)
 js/runner-node/       Node runner via jco (runner-is-provider topology)
 examples/compose/     wac composition walkthrough (bundle-then-plug)
 expected/             golden outputs diffed by the verify recipes

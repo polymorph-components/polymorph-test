@@ -1,13 +1,16 @@
 //! Thin CLI over the runner library:
 //! `ct-runner <suite.wasm> [--jsonl] [--missing f1,f2,...] [--jobs N]
 //! [--cases-per-instance N] [--target key] [--only substring]
-//! [--enumerate] [--suite-artifact suite.wasm]`.
+//! [--enumerate] [--suite-artifact suite.wasm]
+//! [--case-execution-budget secs] [--case-timeout secs]`.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{bail, Context as _, Result};
-use component_test_runner::{OutputMode, Runner};
+use component_test_runner::{
+    OutputMode, Runner, DEFAULT_CASE_EXECUTION_BUDGET_SECS, DEFAULT_CASE_TIMEOUT_SECS,
+};
 
 fn main() -> ExitCode {
     match run() {
@@ -21,7 +24,8 @@ fn main() -> ExitCode {
 
 const USAGE: &str = "usage: ct-runner <suite.wasm> [--jsonl] [--missing f1,f2,...] \
                      [--jobs N] [--cases-per-instance N] [--target key] \
-                     [--only substring] [--enumerate] [--suite-artifact suite.wasm]";
+                     [--only substring] [--enumerate] [--suite-artifact suite.wasm] \
+                     [--case-execution-budget secs] [--case-timeout secs]";
 
 fn run() -> Result<ExitCode> {
     let mut suite: Option<PathBuf> = None;
@@ -33,6 +37,8 @@ fn run() -> Result<ExitCode> {
     let mut only: Option<String> = None;
     let mut enumerate = false;
     let mut suite_artifact: Option<PathBuf> = None;
+    let mut case_execution_budget: u64 = DEFAULT_CASE_EXECUTION_BUDGET_SECS;
+    let mut case_timeout: u64 = DEFAULT_CASE_TIMEOUT_SECS;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -81,6 +87,22 @@ fn run() -> Result<ExitCode> {
                     .parse()
                     .with_context(|| format!("--cases-per-instance: invalid number `{v}`"))?;
             }
+            "--case-execution-budget" => {
+                let v = args.next().ok_or_else(|| {
+                    anyhow::anyhow!("--case-execution-budget needs seconds (0 disables)")
+                })?;
+                case_execution_budget = v
+                    .parse()
+                    .with_context(|| format!("--case-execution-budget: invalid number `{v}`"))?;
+            }
+            "--case-timeout" => {
+                let v = args
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--case-timeout needs seconds (0 disables)"))?;
+                case_timeout = v
+                    .parse()
+                    .with_context(|| format!("--case-timeout: invalid number `{v}`"))?;
+            }
             "--jsonl" => mode = OutputMode::Jsonl,
             "-h" | "--help" => {
                 println!("{USAGE}");
@@ -128,6 +150,8 @@ fn run() -> Result<ExitCode> {
         cases_per_instance,
         jobs,
         only.as_deref(),
+        case_execution_budget,
+        case_timeout,
     ))?;
 
     Ok(if summary.failed > 0 {

@@ -37,7 +37,7 @@ test-wasm: build
 build:
     cargo build --target {{wasm_target}} --release \
         -p sample-suite -p provider -p runner-cli -p fixture-suite \
-        -p drift-fixture -p zero-gen-fixture
+        -p drift-fixture -p zero-gen-fixture -p hang-fixture
 
 # --- verification matrix (AGENTS.md "Build & verify") -----------------
 #

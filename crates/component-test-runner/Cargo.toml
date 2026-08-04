@@ -11,6 +11,10 @@ component-test-formats = { workspace = true }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
 futures = { workspace = true }
+# Timers only: the case-timeout races the run future against a sleep
+# on the wasmtime-wasi runtime (which powers wasi clock pollables, so
+# time is enabled there).
+tokio = { workspace = true, features = ["time"] }
 wasmtime = { version = "47", features = ["component-model-async"] }
 wasmtime-wasi = "47"
 

@@ -104,3 +104,28 @@ Rust `wasm32-wasip2` target.
     `aggregate` requires no lockfile↔envelope hash equality (only
     warning on cross-target disagreement within one run, which is
     reproducibility-independent).
+
+## Case budgets (epochs + timers, #45)
+
+16. **`epoch_deadline_callback` composes with component-model-async**
+    (wasmtime 47): the callback fires during guest execution of
+    async-lifted exports; an `Err` returned from it unwinds the
+    in-flight `call_async` as that error, and the concrete error type
+    survives for `downcast_ref` at the call site (the runner also
+    keeps a Display-substring fallback). Missed ticks collapse into
+    one callback on resume, so tick-counting in the callback
+    approximates *execution* time and under-counts OS preemption —
+    the right direction for a budget.
+17. **`wasmtime_wasi::runtime::in_tokio` has timers enabled** —
+    `tokio::time::sleep` works on that runtime (it already powers
+    wasi clock pollables), so a wall-clock race against the run
+    future needs no extra runtime plumbing.
+18. **`std::future::pending().await` does not wedge a wit-bindgen 0.60
+    guest — it traps**: the guest runtime refuses to park a task
+    waiting only on Rust-originating events (panic: "cannot sleep
+    waiting only on Rust-originating events unless … the
+    `inter-task-wakeup` feature") unless that feature is enabled. A
+    genuine async wedge requires a *host*-originating wait (e.g. a
+    WASI sleep: `std::thread::sleep` on wasip2 suspends in the host's
+    async `poll`, no wasm executing). Hence `hang/wedge` sleeps via
+    WASI rather than awaiting `pending()`.

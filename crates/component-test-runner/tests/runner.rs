@@ -307,6 +307,73 @@ fn raw_registration_trips_drift_cross_check() {
     );
 }
 
+/// Both case budgets (#45), one hang class each, plus containment:
+/// - spin: CPU-bound wasm caught by the execution budget (epoch
+///   deadline callback — the only mechanism that can regain control
+///   from a spinning guest);
+/// - wedge: suspended on a host wait, caught by the wall-clock case
+///   timeout (the only mechanism that fires while no wasm executes);
+/// - after: passes in a fresh session following both abandonments.
+#[test]
+#[ignore = "needs built components: run via `just test-wasm`"]
+fn case_budgets_catch_both_hang_classes() {
+    let wasm = suite_artifact("hang_fixture");
+    let run = ct_runner(&[
+        wasm.to_str().unwrap(),
+        "--jsonl",
+        "--case-execution-budget",
+        "1",
+        "--case-timeout",
+        "2",
+    ]);
+    assert_eq!(run.code, 1, "stderr: {}", run.stderr);
+    let (_, cases, terminated) = parse_jsonl(&run.stdout);
+    assert!(terminated);
+
+    let spin = status_of(&cases, "hang/spin");
+    assert_eq!(spin["status"], "fail");
+    assert_eq!(spin["provenance"]["limit-exceeded"], "execution-budget");
+    assert_eq!(
+        spin["detail"],
+        "execution budget exceeded (1s wasm execution)"
+    );
+    assert_eq!(spin["diagnostics-complete"], false);
+    assert_eq!(spin["diagnostics"][0], "about to spin forever");
+
+    let wedge = status_of(&cases, "hang/wedge");
+    assert_eq!(wedge["status"], "fail");
+    assert_eq!(wedge["provenance"]["limit-exceeded"], "case-timeout");
+    assert_eq!(wedge["detail"], "case timeout exceeded (2s)");
+    assert_eq!(wedge["diagnostics-complete"], false);
+
+    // Containment: the abandoned instances poisoned nothing.
+    let after = status_of(&cases, "hang/after");
+    assert_eq!(after["status"], "pass");
+}
+
+/// Budgets disabled (`0`) must not interfere: the healthy fixture
+/// suite runs identically (and this pins that `--jobs` composes with
+/// the disabled-budget path too).
+#[test]
+#[ignore = "needs built components: run via `just test-wasm`"]
+fn disabled_budgets_change_nothing() {
+    let wasm = fixture_wasm();
+    let baseline = ct_runner(&[wasm.to_str().unwrap(), "--jsonl"]);
+    let disabled = ct_runner(&[
+        wasm.to_str().unwrap(),
+        "--jsonl",
+        "--case-execution-budget",
+        "0",
+        "--case-timeout",
+        "0",
+        "--jobs",
+        "2",
+    ]);
+    assert_eq!(baseline.code, 1);
+    assert_eq!(disabled.code, 1);
+    assert_eq!(baseline.stdout, disabled.stdout);
+}
+
 /// A `!feature` prefix record whose generator materializes zero rows
 /// satisfies the static decline-pair lint but provides no decline
 /// coverage: the runner's materialized check must refuse the run.

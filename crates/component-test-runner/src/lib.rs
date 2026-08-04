@@ -33,6 +33,83 @@ pub struct CtCtx {
     diagnostics: Vec<String>,
     /// Print each diagnostic as it arrives (human mode).
     live_print: bool,
+    /// Epoch ticks observed by the deadline callback in the current
+    /// budget phase (enumeration, or one case). The callback only
+    /// fires while wasm executes, and missed ticks collapse into one
+    /// callback on resume, so this approximates *execution* time
+    /// (`ticks × EPOCH_TICK`) and under-counts OS preemption — the
+    /// contention-robust direction for a budget.
+    budget_ticks: u64,
+    /// Tick budget for the phase; 0 = unlimited.
+    budget_max_ticks: u64,
+}
+
+impl CtCtx {
+    fn start_budget_phase(&mut self) {
+        self.budget_ticks = 0;
+    }
+}
+
+/// Raised by the epoch-deadline callback when a phase exceeds its
+/// execution budget; discriminated by downcast after it unwinds
+/// through the trap plumbing.
+#[derive(Debug)]
+struct ExecutionBudgetExceeded;
+
+impl std::fmt::Display for ExecutionBudgetExceeded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("execution budget exceeded")
+    }
+}
+
+impl std::error::Error for ExecutionBudgetExceeded {}
+
+/// Epoch tick granularity: the ticker thread increments the engine
+/// epoch at this interval, so budgets have ± one tick of slop and
+/// wasm pays one deadline check per tick.
+const EPOCH_TICK: std::time::Duration = std::time::Duration::from_millis(100);
+
+const TICKS_PER_SEC: u64 = 1_000 / EPOCH_TICK.as_millis() as u64;
+
+/// Default `--case-execution-budget` (seconds of wasm execution).
+pub const DEFAULT_CASE_EXECUTION_BUDGET_SECS: u64 = 10;
+/// Default `--case-timeout` (seconds of wall clock per case).
+pub const DEFAULT_CASE_TIMEOUT_SECS: u64 = 120;
+
+/// Keeps the engine epoch advancing while budgets are armed; stops the
+/// ticker thread on drop.
+struct EpochTicker {
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl EpochTicker {
+    fn spawn(engine: &Engine) -> Self {
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let handle = {
+            let engine = engine.clone();
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    std::thread::sleep(EPOCH_TICK);
+                    engine.increment_epoch();
+                }
+            })
+        };
+        EpochTicker {
+            stop,
+            handle: Some(handle),
+        }
+    }
+}
+
+impl Drop for EpochTicker {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
 }
 
 /// Store-data trait for [`Runner`]: expose the runner's state. Combined
@@ -96,6 +173,10 @@ enum Verdict {
     Skip(String),
     /// The `run` call trapped (or otherwise failed at the host boundary).
     Trap(String),
+    /// The runner killed the case for exceeding a limit and abandoned
+    /// the instance: (limit kind — the `limit-exceeded` payload
+    /// vocabulary, one-line detail).
+    Limit(&'static str, String),
 }
 
 pub struct Runner<D: RunnerView + 'static = Ctx> {
@@ -137,6 +218,13 @@ impl<D: RunnerView + 'static> Runner<D> {
         let mut config = Config::new();
         config.wasm_component_model(true);
         config.wasm_component_model_async(true);
+        // Always instrumented: the deadline checks are how the
+        // execution budget regains control from a CPU-spinning guest
+        // (a host-side timer cannot fire while the executor thread is
+        // stuck inside wasm). Cost is a check per tick; with budgets
+        // disabled the epoch never advances and no deadline ever
+        // trips.
+        config.epoch_interruption(true);
         // Instance-per-case makes instantiation the hot path: reuse
         // pooled slots (and their CoW memory mappings) instead of
         // fresh mmaps per case. Sequential execution needs only a few
@@ -213,9 +301,27 @@ impl<D: RunnerView + 'static> Runner<D> {
         self.suite_artifact_sha256 = Some(component_test_formats::sha256_hex(suite_wasm));
     }
 
-    fn new_store(&self, live_print: bool) -> Result<Store<D>> {
+    fn new_store(&self, live_print: bool, budget_max_ticks: u64) -> Result<Store<D>> {
         let mut store = Store::new(&self.engine, (self.make_data)());
-        store.data_mut().ct().live_print = live_print;
+        {
+            let ct = store.data_mut().ct();
+            ct.live_print = live_print;
+            ct.budget_max_ticks = budget_max_ticks;
+        }
+        // Armed before any wasm runs (instantiation executes guest
+        // code). The callback counts execution ticks against the
+        // current phase's budget; the driver resets the count per
+        // phase (enumeration, then each case).
+        store.epoch_deadline_callback(|mut cx| {
+            let ct = cx.data_mut().ct();
+            ct.budget_ticks += 1;
+            if ct.budget_max_ticks != 0 && ct.budget_ticks > ct.budget_max_ticks {
+                Err(ExecutionBudgetExceeded.into())
+            } else {
+                Ok(wasmtime::UpdateDeadline::Continue(1))
+            }
+        });
+        store.set_epoch_deadline(1);
         Ok(store)
     }
 
@@ -227,7 +333,11 @@ impl<D: RunnerView + 'static> Runner<D> {
 
     /// Enumerate the suite in a fresh instance: case names, in suite order.
     pub async fn enumerate(&self) -> Result<Vec<String>> {
-        let mut store = self.new_store(false)?;
+        self.enumerate_with(0).await
+    }
+
+    async fn enumerate_with(&self, budget_max_ticks: u64) -> Result<Vec<String>> {
+        let mut store = self.new_store(false, budget_max_ticks)?;
         let instance = self.instantiate(&mut store).await?;
         let funcs = TestsFuncs::new(&mut store, &instance)?;
         let cases = funcs.all(&mut store).await?;
@@ -240,8 +350,8 @@ impl<D: RunnerView + 'static> Runner<D> {
 
     /// Start a session: fresh store + instance + enumeration, able to
     /// serve multiple cases (the instance-granularity knob).
-    async fn new_session(&self, live_print: bool) -> Result<Session<D>> {
-        let mut store = self.new_store(live_print)?;
+    async fn new_session(&self, live_print: bool, budget_max_ticks: u64) -> Result<Session<D>> {
+        let mut store = self.new_store(live_print, budget_max_ticks)?;
         let instance = self.instantiate(&mut store).await?;
         let funcs = TestsFuncs::new(&mut store, &instance)?;
         let t = std::time::Instant::now();
@@ -278,6 +388,7 @@ impl<D: RunnerView + 'static> Runner<D> {
     /// a suite whose constructor wedges deterministically never gets
     /// here — the census enumeration runs first and fails the whole
     /// run.
+    #[allow(clippy::too_many_arguments)]
     async fn serve_case(
         &self,
         session: &mut Option<Session<D>>,
@@ -285,6 +396,8 @@ impl<D: RunnerView + 'static> Runner<D> {
         cases_per_instance: usize,
         index: usize,
         enumerated_name: &str,
+        exec_budget_secs: u64,
+        case_timeout_secs: u64,
     ) -> (String, Verdict, Vec<String>) {
         if session
             .as_ref()
@@ -293,27 +406,63 @@ impl<D: RunnerView + 'static> Runner<D> {
             *session = None;
         }
         if session.is_none() {
-            match self.new_session(live_print).await {
-                Ok(s) => *session = Some(s),
-                Err(e) => {
+            let created = with_wall_timeout(
+                self.new_session(live_print, exec_budget_secs * TICKS_PER_SEC),
+                case_timeout_secs,
+            )
+            .await;
+            match created {
+                Some(Ok(s)) => *session = Some(s),
+                Some(Err(e)) => {
+                    let verdict = limit_from_error(&e, exec_budget_secs)
+                        .unwrap_or_else(|| Verdict::Trap(trap_detail(&e)));
+                    return (enumerated_name.to_string(), verdict, Vec::new());
+                }
+                None => {
                     return (
                         enumerated_name.to_string(),
-                        Verdict::Trap(trap_detail(&e)),
+                        Verdict::Limit(
+                            "case-timeout",
+                            format!(
+                                "session creation exceeded case timeout ({case_timeout_secs}s)"
+                            ),
+                        ),
                         Vec::new(),
                     );
                 }
             }
         }
-        let result = match self.run_case(session.as_mut().unwrap(), index).await {
-            Ok(r) => r,
-            Err(e) => (
-                enumerated_name.to_string(),
-                Verdict::Trap(trap_detail(&e)),
-                Vec::new(),
-            ),
+        let run = with_wall_timeout(
+            self.run_case(session.as_mut().unwrap(), index),
+            case_timeout_secs,
+        )
+        .await;
+        let result = match run {
+            Some(Ok(r)) => r,
+            Some(Err(e)) => {
+                let verdict = limit_from_error(&e, exec_budget_secs)
+                    .unwrap_or_else(|| Verdict::Trap(trap_detail(&e)));
+                (enumerated_name.to_string(), verdict, Vec::new())
+            }
+            None => {
+                // The dropped call left the instance wounded; salvage
+                // the diagnostics that made it out before abandoning.
+                let diagnostics = session
+                    .as_mut()
+                    .map(|s| std::mem::take(&mut s.store.data_mut().ct().diagnostics))
+                    .unwrap_or_default();
+                (
+                    enumerated_name.to_string(),
+                    Verdict::Limit(
+                        "case-timeout",
+                        format!("case timeout exceeded ({case_timeout_secs}s)"),
+                    ),
+                    diagnostics,
+                )
+            }
         };
-        if matches!(result.1, Verdict::Trap(_)) {
-            // Poisoned: abandon the instance whatever the knob says.
+        if matches!(result.1, Verdict::Trap(_) | Verdict::Limit(..)) {
+            // Poisoned or abandoned: never reuse the instance.
             *session = None;
         }
         result
@@ -328,6 +477,9 @@ impl<D: RunnerView + 'static> Runner<D> {
     ) -> Result<(String, Verdict, Vec<String>)> {
         session.served += 1;
         let store = &mut session.store;
+        // Each case gets a fresh execution-budget phase.
+        store.data_mut().ct().start_budget_phase();
+        let exec_budget_secs = store.data_mut().ct().budget_max_ticks / TICKS_PER_SEC;
         let case = session
             .cases
             .get(index)
@@ -350,7 +502,8 @@ impl<D: RunnerView + 'static> Runner<D> {
         let diagnostics = std::mem::take(&mut store.data_mut().ct().diagnostics);
 
         let verdict = match call {
-            Err(e) => Verdict::Trap(trap_detail(&e)),
+            Err(e) => limit_from_error(&e, exec_budget_secs)
+                .unwrap_or_else(|| Verdict::Trap(trap_detail(&e))),
             Ok(()) => match &results[0] {
                 Val::Result(Ok(_)) => Verdict::Pass,
                 Val::Result(Err(payload)) => match payload.as_deref() {
@@ -438,6 +591,8 @@ impl<D: RunnerView + 'static> Runner<D> {
             cases_per_instance,
             jobs,
             None,
+            DEFAULT_CASE_EXECUTION_BUDGET_SECS,
+            DEFAULT_CASE_TIMEOUT_SECS,
         )
         .await
     }
@@ -445,6 +600,22 @@ impl<D: RunnerView + 'static> Runner<D> {
     /// `only`: run only cases whose name contains the substring (a
     /// dev-loop filter; filtered cases are omitted from output, so
     /// filtered runs will not aggregate cleanly — by design).
+    ///
+    /// `case_execution_budget_secs`: budget on actual wasm *execution*
+    /// per case (approximated by epoch ticks observed while the guest
+    /// runs — roughly thread time, robust to OS preemption). Catches
+    /// CPU spins, which a wall timer cannot (the executor thread is
+    /// stuck inside wasm). `0` disables.
+    ///
+    /// `case_timeout_secs`: wall clock per case, suspension included.
+    /// Catches async wedges (a case awaiting something that never
+    /// resolves), which the execution budget cannot (no wasm runs).
+    /// `0` disables.
+    ///
+    /// Either trip fails the case with provenance
+    /// `limit-exceeded(<kind>)` and abandons the instance — the same
+    /// containment as a trap; the next case gets a fresh session. No
+    /// retries, per policy.
     #[allow(clippy::too_many_arguments)]
     pub async fn run_suite_opts(
         &self,
@@ -455,8 +626,14 @@ impl<D: RunnerView + 'static> Runner<D> {
         cases_per_instance: usize,
         jobs: usize,
         only: Option<&str>,
+        case_execution_budget_secs: u64,
+        case_timeout_secs: u64,
     ) -> Result<Summary> {
         let human = matches!(mode, OutputMode::Human);
+
+        // The engine epoch only advances while a budget needs it; the
+        // ticker stops when the run ends.
+        let _ticker = (case_execution_budget_secs > 0).then(|| EpochTicker::spawn(&self.engine));
 
         // Static inventory (tags) from the suite artifact. Absence is
         // legitimate (suite not built with the SDK); a *malformed*
@@ -549,7 +726,24 @@ impl<D: RunnerView + 'static> Runner<D> {
             println!("{}", serde_json::to_string(&envelope)?);
         }
 
-        let names = self.enumerate().await.context("enumerating suite")?;
+        // The census enumeration runs the suite's registry
+        // constructor: guard it with the same budgets. A trip here is
+        // a run error (nothing has executed a case yet), which also
+        // means a deterministically wedged constructor fails the run
+        // once instead of once per case.
+        let names = match with_wall_timeout(
+            self.enumerate_with(case_execution_budget_secs * TICKS_PER_SEC),
+            case_timeout_secs,
+        )
+        .await
+        {
+            None => bail!("suite enumeration exceeded case timeout ({case_timeout_secs}s)"),
+            Some(Err(e)) if limit_from_error(&e, case_execution_budget_secs).is_some() => bail!(
+                "suite enumeration exceeded execution budget \
+                 ({case_execution_budget_secs}s wasm execution)"
+            ),
+            Some(r) => r.context("enumerating suite")?,
+        };
         // Normative rule ("empty selection is a run error"): a suite
         // whose cases were all compiled away must not report vacuous
         // success. SDK suites can't be empty (the macro rejects it);
@@ -669,6 +863,8 @@ impl<D: RunnerView + 'static> Runner<D> {
                                         cases_per_instance,
                                         index,
                                         &names[index],
+                                        case_execution_budget_secs,
+                                        case_timeout_secs,
                                     )
                                     .await;
                                 let _ = tx.send((index, result));
@@ -726,6 +922,8 @@ impl<D: RunnerView + 'static> Runner<D> {
                     cases_per_instance,
                     index,
                     enumerated_name,
+                    case_execution_budget_secs,
+                    case_timeout_secs,
                 )
                 .await
             };
@@ -736,6 +934,7 @@ impl<D: RunnerView + 'static> Runner<D> {
                     Verdict::Fail(d) => println!("test {name}: FAIL: {d}"),
                     Verdict::Skip(d) => println!("test {name}: SKIP: {d}"),
                     Verdict::Trap(d) => println!("test {name}: FAIL: trap: {d}"),
+                    Verdict::Limit(_, d) => println!("test {name}: FAIL: {d}"),
                 }
             } else {
                 let (status, provenance, detail, complete) = match &verdict {
@@ -745,6 +944,12 @@ impl<D: RunnerView + 'static> Runner<D> {
                         (Status::Skipped, Provenance::Returned, Some(d.clone()), true)
                     }
                     Verdict::Trap(d) => (Status::Fail, Provenance::Trap, Some(d.clone()), false),
+                    Verdict::Limit(kind, d) => (
+                        Status::Fail,
+                        Provenance::LimitExceeded(kind.to_string()),
+                        Some(d.clone()),
+                        false,
+                    ),
                 };
                 let event = Event::Case(CaseResult {
                     case: name.clone(),
@@ -761,7 +966,7 @@ impl<D: RunnerView + 'static> Runner<D> {
 
             match verdict {
                 Verdict::Pass => summary.passed += 1,
-                Verdict::Fail(_) | Verdict::Trap(_) => summary.failed += 1,
+                Verdict::Fail(_) | Verdict::Trap(_) | Verdict::Limit(..) => summary.failed += 1,
                 Verdict::Skip(_) => summary.skipped += 1,
             }
         }
@@ -781,6 +986,40 @@ impl<D: RunnerView + 'static> Runner<D> {
 
         Ok(summary)
     }
+}
+
+/// Race `fut` against a wall-clock deadline (`0` = no deadline);
+/// `None` = timed out. The loser is dropped — callers abandon the
+/// session afterwards, so a wounded in-flight call is never resumed.
+async fn with_wall_timeout<T>(
+    fut: impl std::future::Future<Output = T>,
+    timeout_secs: u64,
+) -> Option<T> {
+    if timeout_secs == 0 {
+        return Some(fut.await);
+    }
+    use futures::FutureExt as _;
+    let mut fut = std::pin::pin!(fut.fuse());
+    let mut deadline =
+        std::pin::pin!(tokio::time::sleep(std::time::Duration::from_secs(timeout_secs)).fuse());
+    futures::select_biased! {
+        r = fut => Some(r),
+        _ = deadline => None,
+    }
+}
+
+/// If `e` is (or wraps) the execution-budget marker, the corresponding
+/// verdict; the Display fallback covers any wrapping that defeats
+/// downcast through wasmtime's trap plumbing.
+fn limit_from_error(e: &wasmtime::Error, exec_budget_secs: u64) -> Option<Verdict> {
+    let is_budget = e.downcast_ref::<ExecutionBudgetExceeded>().is_some()
+        || format!("{e:#}").contains("execution budget exceeded");
+    is_budget.then(|| {
+        Verdict::Limit(
+            "execution-budget",
+            format!("execution budget exceeded ({exec_budget_secs}s wasm execution)"),
+        )
+    })
 }
 
 /// Reduce a wasmtime error chain to a one-line trap detail.

@@ -297,7 +297,10 @@ pub fn fold_jsonl<S: AsRef<str>>(stream: &str, selected: &[S]) -> anyhow::Result
             .rev()
             .find(|r| {
                 r.status == Status::Fail
-                    && matches!(r.provenance, Some(Provenance::Trap | Provenance::HangGuard))
+                    && matches!(
+                        r.provenance,
+                        Some(Provenance::Trap | Provenance::LimitExceeded(_))
+                    )
             })
             .map(|r| r.case.clone());
         for name in selected {
@@ -463,21 +466,25 @@ mod tests {
                 status
             );
         }
-        // Provenance, including hang-guard (never yet emitted by a
-        // runner; pinned here before anything depends on the accident).
+        // Provenance: unit variants are flat strings; limit-exceeded
+        // (first emitted by the case budgets, #45) is externally
+        // tagged with an open payload vocabulary naming the limit.
         let provenances = [
-            (Provenance::Returned, "returned"),
-            (Provenance::Trap, "trap"),
-            (Provenance::HangGuard, "hang-guard"),
+            (Provenance::Returned, r#""returned""#),
+            (Provenance::Trap, r#""trap""#),
+            (
+                Provenance::LimitExceeded("execution-budget".into()),
+                r#"{"limit-exceeded":"execution-budget"}"#,
+            ),
+            (
+                Provenance::LimitExceeded("case-timeout".into()),
+                r#"{"limit-exceeded":"case-timeout"}"#,
+            ),
         ];
-        for (provenance, word) in provenances {
+        for (provenance, wire) in provenances {
+            assert_eq!(serde_json::to_string(&provenance).unwrap(), wire);
             assert_eq!(
-                serde_json::to_value(provenance).unwrap(),
-                serde_json::Value::String(word.into())
-            );
-            assert_eq!(
-                serde_json::from_value::<Provenance>(serde_json::Value::String(word.into()))
-                    .unwrap(),
+                serde_json::from_str::<Provenance>(wire).unwrap(),
                 provenance
             );
         }
