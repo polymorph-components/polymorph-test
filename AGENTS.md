@@ -47,7 +47,8 @@ them before re-litigating a decision.
 wit/                  L1 contract (the canonical copy)
 crates/               host-side Rust (tested natively at root)
   component-test-core      name grammar, tags, verdicts
-  component-test-formats   lockfile, results model/JSONL, inventory scanner
+  component-test-formats   lockfile, inventory scanner, aggregator, matrix
+  component-test-results   canonical results schema + fold (guest-linkable)
   component-test-sdk       guest SDK (registry, prelude, verdict ergonomics)
   component-test-sdk-macro #[suite] attribute (case discovery, tags section)
   component-test-cli       `component-test` bin: lock, fold, aggregate

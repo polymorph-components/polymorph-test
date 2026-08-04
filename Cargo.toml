@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/component-test-core",
     "crates/component-test-formats",
+    "crates/component-test-results",
     "crates/component-test-sdk",
     "crates/component-test-sdk-macro",
     "crates/component-test-cli",
@@ -21,6 +22,7 @@ members = [
 default-members = [
     "crates/component-test-core",
     "crates/component-test-formats",
+    "crates/component-test-results",
     "crates/component-test-sdk",
     "crates/component-test-sdk-macro",
     "crates/component-test-cli",
@@ -36,6 +38,7 @@ repository = "https://github.com/lann/component-test"
 [workspace.dependencies]
 component-test-core = { path = "crates/component-test-core" }
 component-test-formats = { path = "crates/component-test-formats" }
+component-test-results = { path = "crates/component-test-results" }
 component-test-sdk = { path = "crates/component-test-sdk" }
 component-test-sdk-macro = { path = "crates/component-test-sdk-macro" }
 wit-bindgen = "0.60"

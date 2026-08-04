@@ -4,12 +4,22 @@
 //!   cases to `not-reached`
 //! - unknown statuses fold to no-result + validation warning
 //! - empty selection is a run error
+//!
+//! Deliberately a leaf crate (core + serde only) so *guest-side*
+//! encoders can link it: every producer of the frozen wire format —
+//! host runners, the composed wasi:cli runner core, future SDKs —
+//! must share these types rather than hand-rolling JSON (#34).
+//! Host-side consumers usually reach it through
+//! `component_test_formats::results`, a re-export.
 
 use std::collections::BTreeMap;
 
 use anyhow::Context as _;
-use component_test_core::Provenance;
 use serde::{Deserialize, Serialize};
+
+/// Re-exported for encoders: the provenance vocabulary lives in core
+/// (guest suites compile core anyway via the SDK).
+pub use component_test_core::Provenance;
 
 pub const RESULTS_VERSION: &str = "0.1";
 

@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 component-test-core = { workspace = true }
+component-test-results = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }

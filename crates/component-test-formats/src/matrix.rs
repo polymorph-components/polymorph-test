@@ -22,9 +22,12 @@ fn top_group(case: &str) -> &str {
 
 /// Display vocabulary for matrix cells — deliberately *not*
 /// [`Status::word`]: failures shout (upper case), expected outcomes
-/// stay quiet, and `N/A` keeps cells narrow. This match is exhaustive
-/// on purpose: adding a `Status` variant must force a decision here
-/// (the enum is `#[non_exhaustive]` only for foreign crates).
+/// stay quiet, and `N/A` keeps cells narrow. Since the results-schema
+/// split, `Status` is a foreign `#[non_exhaustive]` enum, so this
+/// match carries a wildcard: a future status renders as its quiet
+/// wire word until someone chooses display emphasis here (the
+/// wire-vocabulary pin test in component-test-results is what forces
+/// attention on additions).
 fn word(status: Status) -> &'static str {
     match status {
         Status::Pass => "pass",
@@ -33,6 +36,7 @@ fn word(status: Status) -> &'static str {
         Status::NotReached => "NOT-REACHED",
         Status::NotApplicable => "N/A",
         Status::Deselected => "deselected",
+        _ => status.word(),
     }
 }
 

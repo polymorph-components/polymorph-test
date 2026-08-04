@@ -59,10 +59,13 @@ verify-embed: build
     diff -u expected/verify-embed-fixture.txt <(printf '%s\n' "$out")
     echo "verify-embed: output matches expected/"
 
-# Path 2: composed wasi:cli runner (bundle-then-plug).
+# Path 2: composed wasi:cli runner (bundle-then-plug). The JSONL leg
+# pins the composed wire format (emitted via the shared results crate)
+# and asserts fold equivalence with the host-embed runner byte-for-byte.
 verify-compose: build
     #!/usr/bin/env bash
     set -euo pipefail
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
     cd examples/compose
     wac compose \
         -d lann:provider-impl=../../{{release_dir}}/provider.wasm \
@@ -73,7 +76,16 @@ verify-compose: build
     out=$(wasmtime run {{wasmtime_flags}} composed.wasm) && code=0 || code=$?
     test "$code" -eq 1
     diff -u ../../expected/verify-run-sample.txt <(printf '%s\n' "$out")
-    echo "verify-compose: output matches expected/"
+    jsonl=$(wasmtime run {{wasmtime_flags}} --env COMPONENT_TEST_JSONL=1 composed.wasm) \
+        && code=0 || code=$?
+    test "$code" -eq 1
+    cd ../..
+    diff -u expected/verify-compose-sample.jsonl <(printf '%s\n' "$jsonl")
+    printf '%s\n' "$jsonl" | cargo run -q -p component-test-cli -- fold \
+        components/sample-suite/tests.lock > "$tmp/fold.txt" && code=0 || code=$?
+    test "$code" -eq 1
+    diff -u expected/verify-pipeline-sample-fold.txt "$tmp/fold.txt"
+    echo "verify-compose: output matches expected/ (incl. JSONL + cross-runner fold)"
 
 # Path 3: jco-node runner (suite transpiled alone; runner-is-provider).
 verify-node: build

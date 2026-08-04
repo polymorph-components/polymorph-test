@@ -1,14 +1,18 @@
-//! Host-side formats: the inventory lockfile and the canonical results
-//! model (#26): WIT-shaped event records, JSONL edge encoding, and the
-//! stream→document fold (including the `not-reached` rule). Plus the
-//! cross-target aggregator (#30) and its markdown matrix renderer.
+//! Host-side formats: the inventory lockfile, the cross-target
+//! aggregator (#30) and its markdown matrix renderer, and — re-exported
+//! from the guest-linkable `component-test-results` crate — the
+//! canonical results model (#26).
 
 pub mod aggregate;
 pub mod inventory;
 pub mod lockfile;
 pub mod manifest;
 pub mod matrix;
-pub mod results;
+/// The canonical results model, re-exported: the types live in
+/// `component-test-results` so guest-side encoders (e.g. the composed
+/// runner core) can link the schema without dragging in wasmparser,
+/// TOML, and the aggregator.
+pub use component_test_results as results;
 
 /// Hex-encoded sha256: the artifact-binding digest recorded in
 /// lockfiles (`suite.artifact_sha256`) and results envelopes

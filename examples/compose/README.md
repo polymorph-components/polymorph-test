@@ -13,8 +13,14 @@ wac plug --plug bundle.wasm ../../target/wasm32-wasip2/release/runner_cli.wasm -
 wasmtime run -W component-model-async -S p3 composed.wasm
 ```
 
-`COMPONENT_TEST_JSONL=1` (env) switches the composed runner to the
-results wire format; fold it with `component-test fold`.
+`--env COMPONENT_TEST_JSONL=1` (wasmtime does not inherit host env
+vars) switches the composed runner to the results wire format; fold it
+with `component-test fold`:
+
+```sh
+wasmtime run -W component-model-async -S p3 --env COMPONENT_TEST_JSONL=1 composed.wasm \
+  | component-test fold ../../components/sample-suite/tests.lock
+```
 
 `compose.wac` is the equivalent one-shot three-node composition.
 

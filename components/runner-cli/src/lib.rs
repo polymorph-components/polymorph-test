@@ -25,28 +25,14 @@ use bindings::lann::component_test_provider::factory::new_context;
 use bindings::wasi::cli::stdout::write_via_stream;
 use bindings::wit_stream;
 
+use component_test_results::{
+    CaseResult, Envelope, Provenance, RunInfo, Status, SuiteInfo, RESULTS_VERSION, TERMINATOR,
+};
 use futures::{pin_mut, select_biased, FutureExt, StreamExt};
 use wit_bindgen::rt::async_support::StreamWriter;
 
 fn jsonl_mode() -> bool {
     std::env::var("COMPONENT_TEST_JSONL").is_ok_and(|v| v == "1")
-}
-
-fn json_str(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
 }
 
 struct Out {
@@ -120,25 +106,25 @@ async fn run_case(case: &TestCase, out: &mut Out, human: bool) -> (CaseVerdict, 
     (verdict, diags)
 }
 
+/// The typed #26 event, serialized by the shared schema crate —
+/// serialization of these plain structs cannot fail.
 fn case_event(name: &str, verdict: &CaseVerdict, diags: &[String]) -> String {
     let (status, detail) = match verdict {
-        CaseVerdict::Pass => ("pass", None),
-        CaseVerdict::Fail(d) => ("fail", Some(d.as_str())),
-        CaseVerdict::Skip(d) => ("skipped", Some(d.as_str())),
+        CaseVerdict::Pass => (Status::Pass, None),
+        CaseVerdict::Fail(d) => (Status::Fail, Some(d.clone())),
+        CaseVerdict::Skip(d) => (Status::Skipped, Some(d.clone())),
     };
-    let mut ev = format!(
-        r#"{{"case":{},"status":"{status}","provenance":"returned""#,
-        json_str(name)
-    );
-    if let Some(d) = detail {
-        ev.push_str(&format!(r#","detail":{}"#, json_str(d)));
-    }
-    if !diags.is_empty() {
-        let list: Vec<String> = diags.iter().map(|d| json_str(d)).collect();
-        ev.push_str(&format!(r#","diagnostics":[{}]"#, list.join(",")));
-    }
-    ev.push('}');
-    ev
+    let event = CaseResult {
+        case: name.to_string(),
+        status,
+        provenance: Some(Provenance::Returned),
+        detail,
+        seed: None,
+        duration_ms: None,
+        diagnostics: diags.to_vec(),
+        diagnostics_complete: true,
+    };
+    serde_json::to_string(&event).expect("serialize case event")
 }
 
 struct Runner;
@@ -153,10 +139,22 @@ impl RunGuest for Runner {
         let mut out = Out { tx };
 
         if !human {
-            out.line(
-                r#"{"component-test-results":"0.1","target":"composed-cli","suite":{"name":"sample"},"run":{"segment":0}}"#,
-            )
-            .await;
+            // This core is generic (any suite gets plugged in via
+            // `wac plug`), so it cannot know the suite's name; a
+            // neutral one beats the lie of a hardcoded one. No
+            // artifact hash either: the composed binary has no access
+            // to the suite artifact's bytes.
+            let envelope = Envelope {
+                version: RESULTS_VERSION.into(),
+                target: "composed-cli".into(),
+                suite: SuiteInfo {
+                    name: "composed".into(),
+                    ..Default::default()
+                },
+                run: RunInfo::default(),
+            };
+            out.line(&serde_json::to_string(&envelope).expect("serialize envelope"))
+                .await;
         }
 
         let cases = all().await;
@@ -194,7 +192,7 @@ impl RunGuest for Runner {
             ))
             .await;
         } else {
-            out.line(r#"{"segment-end":true}"#).await;
+            out.line(TERMINATOR).await;
         }
 
         // Close stdout stream and wait for delivery.
