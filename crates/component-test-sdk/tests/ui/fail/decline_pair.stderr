@@ -1,0 +1,7 @@
+error: decline-pair lint: feature(s) `hsm` have positively-tagged cases but no `!feature` decline-asserting case. Add a case tagged with the negated feature (e.g. tags("!hsm")) asserting the feature is cleanly refused on targets that lack it — see README "Feature tags"
+ --> tests/ui/fail/decline_pair.rs:4:1
+  |
+4 | #[component_test_sdk::suite]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `component_test_sdk::suite` (in Nightly builds, run with -Z macro-backtrace for more info)

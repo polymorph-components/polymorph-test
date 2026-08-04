@@ -16,3 +16,6 @@ wit-bindgen = { workspace = true }
 [dev-dependencies]
 # Pins the `or_fail()` contract against the motivating error type.
 anyhow = { workspace = true }
+# UI tests for the #[suite] macro's compile-time guards (the compile
+# errors are the product; see tests/ui.rs).
+trybuild = { workspace = true }

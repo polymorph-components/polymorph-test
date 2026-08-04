@@ -1,0 +1,5 @@
+error: #[suite] items may not be cfg-gated: the inventory (and its lockfile) must not depend on build configuration
+ --> tests/ui/fail/cfg_gated_case.rs:5:5
+  |
+5 |     #[case]
+  |     ^

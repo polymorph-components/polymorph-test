@@ -1,0 +1,7 @@
+error: #[case_generator]/#[case_row] requires prefix = "..."
+ --> tests/ui/fail/generator_without_prefix.rs:4:1
+  |
+4 | #[component_test_sdk::suite]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `component_test_sdk::suite` (in Nightly builds, run with -Z macro-backtrace for more info)

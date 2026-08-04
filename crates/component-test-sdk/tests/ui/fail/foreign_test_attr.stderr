@@ -1,0 +1,5 @@
+error: `#[test]` inside a #[suite] module registers nothing (the case would be silently dropped): did you mean #[case]?
+  --> tests/ui/fail/foreign_test_attr.rs:11:5
+   |
+11 |     #[test]
+   |     ^

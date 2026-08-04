@@ -1,0 +1,5 @@
+error: case `overlap/gen/tc1` sits under generator prefix `overlap/gen/*`: leaves would collide only at run time
+ --> tests/ui/fail/case_under_generator_prefix.rs:8:18
+  |
+8 |         async fn tc1(_ctx: &TestContext) -> Verdict {
+  |                  ^^^

@@ -1,0 +1,5 @@
+error: #[case] functions take no arguments or exactly one (`ctx: &TestContext`)
+ --> tests/ui/fail/case_fn_shape.rs:6:5
+  |
+6 |     async fn two_args(_ctx: &TestContext, _extra: u32) -> Verdict {
+  |     ^^^^^

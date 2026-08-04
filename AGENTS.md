@@ -84,8 +84,10 @@ or #13.
 ## Build & verify
 
 Recipes live in the `justfile` (`just` lists them): `just test` (host
-crates), `just build` (components), `just all` (the full matrix below),
-`just lock-check` / `just lock-update`, `just wit-check`. The verify
+crates), `just test-wasm` (integration tests that execute built
+components — `#[ignore]`d in plain `cargo test`), `just build`
+(components), `just all` (the full matrix below), `just lock-check` /
+`just lock-update`, `just wit-check`. The verify
 recipes assert exit codes *and* diff runner/fold output byte-for-byte
 against `expected/` — when you intentionally change output or suite
 cases, regenerate the affected `expected/` files and review the diff.

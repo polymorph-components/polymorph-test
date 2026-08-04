@@ -9,7 +9,7 @@ _default:
     @just --list --unsorted
 
 # Everything: host tests, component builds, all four verification paths.
-all: test build lock-check verify-embed verify-compose verify-node verify-pipeline
+all: build test test-wasm lock-check verify-embed verify-compose verify-node verify-pipeline
 
 # CI's native job: formatting, clippy, host tests, WIT validation.
 host-checks: fmt-check lint test wit-check
@@ -28,6 +28,12 @@ test:
     cargo test --workspace \
         --exclude sample-suite --exclude provider \
         --exclude runner-cli --exclude fixture-suite
+
+# Integration tests that execute built components (`#[ignore]`d in
+# plain `cargo test`; artifacts come from `just build`).
+test-wasm: build
+    cargo test -p component-test-runner -p component-test-cli \
+        --tests -- --ignored
 
 # Build all guest components.
 build:

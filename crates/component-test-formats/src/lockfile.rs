@@ -21,7 +21,11 @@ pub struct Lockfile {
     pub version: String,
     /// The suite this inventory was generated from.
     pub suite: SuiteRef,
-    /// Every statically-known case, in canonical order.
+    /// Every statically-known case, in canonical order. Empty for
+    /// all-generated suites (TOML omits empty table arrays, so this
+    /// must default on deserialization or `lock`'s own output for such
+    /// a suite wouldn't re-parse).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub case: Vec<CaseEntry>,
     /// Generated rows: leaves enumerated at run time under a static
     /// prefix, sharing the row's tags.

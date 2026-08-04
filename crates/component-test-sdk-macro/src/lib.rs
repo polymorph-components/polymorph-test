@@ -21,7 +21,7 @@ use syn::{
 
 /// Declare a test-suite component from a module tree.
 ///
-/// ```ignore
+/// ```
 /// #[component_test_sdk::suite]          // or #[suite(name = "acme-crypto")]
 /// mod sample {
 ///     mod math {
@@ -53,6 +53,7 @@ use syn::{
 ///         }))
 ///     }
 /// }
+/// # fn main() {}
 /// ```
 ///
 /// Semantics:

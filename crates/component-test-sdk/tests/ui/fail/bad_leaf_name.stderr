@@ -1,0 +1,5 @@
+error: `named/..`: segment `..` is forbidden
+ --> tests/ui/fail/bad_leaf_name.rs:7:14
+  |
+7 |     async fn traversal(_ctx: &TestContext) -> Verdict {
+  |              ^^^^^^^^^

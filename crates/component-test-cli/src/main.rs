@@ -116,6 +116,36 @@ fn lock(args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The fold selection: lockfile case names plus every case name
+/// observed in the stream. Generated-row leaves exist only at run
+/// time, so they are knowable solely from the stream — without the
+/// union, an all-generated suite trips the "empty selection is a run
+/// error" rule spuriously. Reported names are by definition selected;
+/// coverage (exact-case completeness, prefix membership, grammar) is
+/// enforced separately by `check_coverage`.
+fn selected_names(lockfile: Option<&Lockfile>, stream: &str) -> Vec<String> {
+    let mut selected: Vec<String> = lockfile
+        .map(|lf| {
+            lf.case
+                .iter()
+                .map(|c| c.name.as_str().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut seen: std::collections::BTreeSet<String> = selected.iter().cloned().collect();
+    for name in stream
+        .lines()
+        .skip(1) // envelope
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter_map(|v| v.get("case").and_then(|c| c.as_str()).map(String::from))
+    {
+        if seen.insert(name.clone()) {
+            selected.push(name);
+        }
+    }
+    selected
+}
+
 fn fold(args: &[String]) -> anyhow::Result<()> {
     match args.first().map(|s| s.as_str()) {
         Some("-h" | "--help") => {
@@ -147,19 +177,7 @@ fn fold(args: &[String]) -> anyhow::Result<()> {
         }
         None => None,
     };
-    let selected: Vec<String> = match &lockfile {
-        Some(lf) => lf
-            .case
-            .iter()
-            .map(|c| c.name.as_str().to_string())
-            .collect(),
-        None => stream
-            .lines()
-            .skip(1)
-            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
-            .filter_map(|v| v.get("case").and_then(|c| c.as_str()).map(String::from))
-            .collect(),
-    };
+    let selected = selected_names(lockfile.as_ref(), &stream);
 
     let doc = results::fold_jsonl(&stream, &selected)?;
 
@@ -268,15 +286,10 @@ fn aggregate_cmd(args: &[String]) -> anyhow::Result<()> {
             .with_context(|| format!("reading {manifest_path}"))?,
     )?;
 
-    let selected: Vec<String> = lf
-        .case
-        .iter()
-        .map(|c| c.name.as_str().to_string())
-        .collect();
     let mut docs = Vec::new();
     for (target, path) in &result_args {
         let stream = std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
-        let doc = results::fold_jsonl(&stream, &selected)
+        let doc = results::fold_jsonl(&stream, &selected_names(Some(&lf), &stream))
             .with_context(|| format!("folding results for target `{target}` ({path})"))?;
         docs.push((target.clone(), doc));
     }

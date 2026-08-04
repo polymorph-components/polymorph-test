@@ -1,0 +1,5 @@
+error: generator prefixes `overlap/rows/*` and `overlap/rows/sub/*` overlap: leaves would collide only at run time
+  --> tests/ui/fail/overlapping_generators.rs:11:8
+   |
+11 |     fn inner() -> impl Iterator<Item = Case> {
+   |        ^^^^^

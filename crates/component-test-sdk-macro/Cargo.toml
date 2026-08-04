@@ -14,3 +14,8 @@ component-test-core = { workspace = true }
 syn = { version = "2", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"
+
+[dev-dependencies]
+# Dev-only cycle (cargo permits it): lets the `suite` doctest compile
+# for real instead of sitting behind ```ignore``` and rotting.
+component-test-sdk = { workspace = true }

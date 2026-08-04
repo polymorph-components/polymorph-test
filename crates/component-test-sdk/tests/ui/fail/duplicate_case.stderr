@@ -1,0 +1,5 @@
+error: duplicate case `dupe/add`
+  --> tests/ui/fail/duplicate_case.rs:11:14
+   |
+11 |     async fn add_again(_ctx: &TestContext) -> Verdict {
+   |              ^^^^^^^^^

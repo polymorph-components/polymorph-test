@@ -782,3 +782,28 @@ impl TestsFuncs {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trap_detail_extracts_root_trap_message() {
+        let r: Result<()> = Err(format_err!(
+            "wasm trap: wasm `unreachable` instruction executed"
+        ));
+        let e = r.context("running case `fixture/trap/boom`").unwrap_err();
+        assert_eq!(
+            trap_detail(&e),
+            "wasm trap: wasm `unreachable` instruction executed"
+        );
+    }
+
+    #[test]
+    fn trap_detail_falls_back_to_first_line_one_liner() {
+        let e = format_err!("component instantiation failed\nbecause of reasons\nand more");
+        assert_eq!(trap_detail(&e), "component instantiation failed");
+        // One-line convention: never multiline.
+        assert!(!trap_detail(&e).contains('\n'));
+    }
+}
