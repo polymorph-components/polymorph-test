@@ -16,9 +16,8 @@ use component_test_formats::{
     aggregate, inventory,
     lockfile::{Lockfile, SuiteRef},
     manifest::Manifest,
-    matrix, results,
+    matrix, results, sha256_hex,
 };
-use sha2::Digest;
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -57,7 +56,7 @@ fn lock(args: &[String]) -> anyhow::Result<()> {
     let wasm = std::fs::read(&suite_path).with_context(|| format!("reading {suite_path}"))?;
 
     let inv = inventory::inventory(&wasm)?;
-    let artifact_sha256 = hex(&sha2::Sha256::digest(&wasm));
+    let artifact_sha256 = sha256_hex(&wasm);
     let name = std::path::Path::new(&suite_path)
         .file_stem()
         .and_then(|s| s.to_str())
@@ -104,17 +103,22 @@ fn fold(args: &[String]) -> anyhow::Result<()> {
     let mut stream = String::new();
     std::io::stdin().read_to_string(&mut stream)?;
 
-    let selected: Vec<String> = match args.first() {
+    let lockfile = match args.first() {
         Some(path) => {
             let lf = Lockfile::from_toml(
                 &std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?,
             )?;
             lf.validate()?;
-            lf.case
-                .iter()
-                .map(|c| c.name.as_str().to_string())
-                .collect()
+            Some(lf)
         }
+        None => None,
+    };
+    let selected: Vec<String> = match &lockfile {
+        Some(lf) => lf
+            .case
+            .iter()
+            .map(|c| c.name.as_str().to_string())
+            .collect(),
         None => stream
             .lines()
             .skip(1)
@@ -125,9 +129,18 @@ fn fold(args: &[String]) -> anyhow::Result<()> {
 
     let doc = results::fold_jsonl(&stream, &selected)?;
 
+    // With a lockfile in hand, coverage is part of acceptance: every
+    // case reported exactly once, generated leaves under their prefix
+    // (same gate `aggregate` applies). Unknown-status events are not
+    // valid reports, so a renamed status surfaces here too.
+    let coverage_error = lockfile.as_ref().and_then(|lf| {
+        lf.check_coverage(doc.results.iter().map(|r| r.case.as_str()))
+            .err()
+    });
+
     let mut counts = std::collections::BTreeMap::new();
     for r in &doc.results {
-        *counts.entry(format!("{:?}", r.status)).or_insert(0u32) += 1;
+        *counts.entry(r.status.word()).or_insert(0u32) += 1;
         let flag = match r.status {
             results::Status::Pass => continue,
             results::Status::Fail => "FAIL",
@@ -136,7 +149,10 @@ fn fold(args: &[String]) -> anyhow::Result<()> {
             results::Status::NotApplicable => "N/A",
             results::Status::Deselected => "DESELECTED",
         };
-        println!("{flag}: {} {}", r.case, r.detail.as_deref().unwrap_or(""));
+        match r.detail.as_deref() {
+            Some(detail) => println!("{flag}: {} — {detail}", r.case),
+            None => println!("{flag}: {}", r.case),
+        }
         for d in &r.diagnostics {
             println!("    diag: {d}");
         }
@@ -150,6 +166,9 @@ fn fold(args: &[String]) -> anyhow::Result<()> {
     for (case, status) in &doc.unknown_statuses {
         println!("UNKNOWN-STATUS: {case} -> {status}");
     }
+    if let Some(e) = &coverage_error {
+        println!("COVERAGE: {e:#}");
+    }
     println!(
         "\n{} results ({}terminated): {}",
         doc.results.len(),
@@ -160,11 +179,14 @@ fn fold(args: &[String]) -> anyhow::Result<()> {
             .collect::<Vec<_>>()
             .join(", ")
     );
-    let failed = doc
-        .results
-        .iter()
-        .any(|r| r.status == results::Status::Fail)
-        || !doc.run_errors.is_empty()
+    let failed = doc.results.iter().any(|r| {
+        matches!(
+            r.status,
+            results::Status::Fail | results::Status::NotReached
+        )
+    }) || !doc.run_errors.is_empty()
+        || !doc.unknown_statuses.is_empty()
+        || coverage_error.is_some()
         || !doc.terminated;
     std::process::exit(if failed { 1 } else { 0 });
 }
@@ -254,8 +276,4 @@ fn aggregate_cmd(args: &[String]) -> anyhow::Result<()> {
             .unwrap_or_default()
     );
     std::process::exit(if agg.ok() { 0 } else { 1 });
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }

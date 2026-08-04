@@ -15,4 +15,3 @@ component-test-core = { workspace = true }
 component-test-formats = { workspace = true }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
-sha2 = "0.10"

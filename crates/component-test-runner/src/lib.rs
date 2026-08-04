@@ -375,8 +375,25 @@ impl<D: RunnerView + 'static> Runner<D> {
     ) -> Result<Summary> {
         let human = matches!(mode, OutputMode::Human);
 
-        // Static inventory (tags) from the suite artifact, if present.
-        let inventory = component_test_formats::inventory::inventory(&self.wasm_bytes).ok();
+        // Static inventory (tags) from the suite artifact. Absence is
+        // legitimate (suite not built with the SDK); a *malformed*
+        // section is a harness bug and must not silently degrade into
+        // "no scheduling, no drift checks".
+        let inventory = component_test_formats::inventory::try_inventory(&self.wasm_bytes)
+            .map_err(|e| format_err!("reading tags inventory from suite artifact: {e:#}"))?;
+        if inventory.is_none() {
+            if !missing_features.is_empty() {
+                bail!(
+                    "--missing requires a tags inventory, but the suite artifact has no \
+                     `component-test:tags@0.1` section (suite not built with the SDK, or \
+                     sections stripped by composition)"
+                );
+            }
+            eprintln!(
+                "note: no tags inventory in suite artifact; \
+                 feature scheduling and drift checks disabled"
+            );
+        }
         let tags_of = |name: &str| -> Option<Tags> {
             let inv = inventory.as_ref()?;
             if let Some(e) = inv.cases.iter().find(|e| e.name.as_str() == name) {
@@ -398,6 +415,9 @@ impl<D: RunnerView + 'static> Runner<D> {
                 target: target.into(),
                 suite: SuiteInfo {
                     name: suite_name.into(),
+                    // Binds the results to the exact suite build;
+                    // `aggregate` cross-checks it against the lockfile.
+                    artifact_sha256: Some(component_test_formats::sha256_hex(&self.wasm_bytes)),
                     ..Default::default()
                 },
                 run: RunInfo::default(),

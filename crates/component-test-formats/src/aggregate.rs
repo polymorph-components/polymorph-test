@@ -150,6 +150,31 @@ pub fn aggregate(
                 doc.envelope.target
             ));
         }
+        // Artifact binding: results produced from a different suite
+        // build than the lockfile describes are exactly the drift the
+        // sha256 exists to refuse (same names, different bodies).
+        // Envelopes without a hash (foreign runners, older streams)
+        // are tolerated.
+        if let (Some(reported), Some(expected)) = (
+            doc.envelope.suite.artifact_sha256.as_deref(),
+            lockfile.suite.artifact_sha256.as_deref(),
+        ) {
+            if reported != expected {
+                errors.push(format!(
+                    "target `{target}`: results were produced from suite artifact \
+                     sha256 {reported}, but the lockfile records {expected} \
+                     (stale lockfile or wrong suite build — regenerate with \
+                     `component-test lock`)"
+                ));
+            }
+        }
+        if doc.envelope.suite.name != lockfile.suite.name {
+            warnings.push(format!(
+                "target `{target}`: results envelope names suite `{}`, lockfile \
+                 names `{}`",
+                doc.envelope.suite.name, lockfile.suite.name
+            ));
+        }
         let missing = match manifest.missing(target) {
             Some(missing) => missing,
             None => {
@@ -350,6 +375,70 @@ mod tests {
     }
 
     #[test]
+    fn artifact_hash_binding() {
+        let mut lock = corpus_lock();
+        lock.suite.artifact_sha256 = Some("aa11".into());
+
+        // Matching hashes: clean.
+        let mut matching = native_doc();
+        matching.envelope.suite.artifact_sha256 = Some("aa11".into());
+        let mut sim_matching = sim_doc();
+        sim_matching.envelope.suite.artifact_sha256 = Some("aa11".into());
+        let agg = aggregate(
+            &lock,
+            &manifest(MANIFEST),
+            &[
+                ("native".into(), matching),
+                ("sim".into(), sim_matching.clone()),
+            ],
+        );
+        assert!(agg.errors.is_empty(), "{:?}", agg.errors);
+
+        // Mismatch: results from a different suite build are refused.
+        let mut stale = native_doc();
+        stale.envelope.suite.artifact_sha256 = Some("bb22".into());
+        let agg = aggregate(
+            &lock,
+            &manifest(MANIFEST),
+            &[("native".into(), stale), ("sim".into(), sim_matching)],
+        );
+        assert!(
+            agg.errors
+                .iter()
+                .any(|e| e.contains("sha256") && e.contains("bb22") && e.contains("aa11")),
+            "{:?}",
+            agg.errors
+        );
+
+        // Envelopes without a hash are tolerated (foreign runners).
+        let agg = aggregate(
+            &lock,
+            &manifest(MANIFEST),
+            &[("native".into(), native_doc()), ("sim".into(), sim_doc())],
+        );
+        assert!(agg.errors.is_empty(), "{:?}", agg.errors);
+    }
+
+    #[test]
+    fn suite_name_mismatch_is_warning() {
+        let mut d = native_doc();
+        d.envelope.suite.name = "other".into();
+        let agg = aggregate(
+            &corpus_lock(),
+            &manifest(MANIFEST),
+            &[("native".into(), d), ("sim".into(), sim_doc())],
+        );
+        assert!(agg.errors.is_empty(), "{:?}", agg.errors);
+        assert!(
+            agg.warnings
+                .iter()
+                .any(|w| w.contains("`other`") && w.contains("`suite`")),
+            "{:?}",
+            agg.warnings
+        );
+    }
+
+    #[test]
     fn unknown_target_is_error() {
         let agg = aggregate(
             &corpus_lock(),
@@ -502,8 +591,8 @@ mod tests {
     }
 
     /// The #30 retirement acceptance test: a corpus with a tagged pair
-    /// + manifest entry. Every partial-deletion state must fail
-    ///   validation; the complete deletion must pass.
+    /// and manifest entry. Every partial-deletion state must fail
+    /// validation; the complete deletion must pass.
     #[test]
     fn feature_retirement() {
         // Retirement removes, in one commit: (A) the tagged cases from

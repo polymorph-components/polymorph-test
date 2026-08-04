@@ -1,10 +1,11 @@
 //! Thin CLI over the runner library:
-//! `ct-runner <suite.wasm> [--jsonl] [--missing f1,f2,...]`.
+//! `ct-runner <suite.wasm> [--jsonl] [--missing f1,f2,...] [--jobs N]
+//! [--cases-per-instance N]`.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context as _, Result};
 use component_test_runner::{OutputMode, Runner};
 
 fn main() -> ExitCode {
@@ -16,6 +17,9 @@ fn main() -> ExitCode {
         }
     }
 }
+
+const USAGE: &str = "usage: ct-runner <suite.wasm> [--jsonl] [--missing f1,f2,...] \
+                     [--jobs N] [--cases-per-instance N]";
 
 fn run() -> Result<ExitCode> {
     let mut suite: Option<PathBuf> = None;
@@ -51,21 +55,26 @@ fn run() -> Result<ExitCode> {
                 let v = args
                     .next()
                     .ok_or_else(|| anyhow::anyhow!("--jobs needs a number"))?;
-                jobs = v.parse::<usize>()?.max(1);
+                jobs = v
+                    .parse::<usize>()
+                    .with_context(|| format!("--jobs: invalid number `{v}`"))?
+                    .max(1);
             }
             "--cases-per-instance" => {
                 let v = args
                     .next()
                     .ok_or_else(|| anyhow::anyhow!("--cases-per-instance needs a number"))?;
-                cases_per_instance = v.parse()?;
+                cases_per_instance = v
+                    .parse()
+                    .with_context(|| format!("--cases-per-instance: invalid number `{v}`"))?;
             }
             "--jsonl" => mode = OutputMode::Jsonl,
             _ if suite.is_none() => suite = Some(PathBuf::from(arg)),
-            _ => bail!("unexpected argument `{arg}`\nusage: ct-runner <suite.wasm> [--jsonl]"),
+            _ => bail!("unexpected argument `{arg}`\n{USAGE}"),
         }
     }
     let Some(suite) = suite else {
-        bail!("usage: ct-runner <suite.wasm> [--jsonl]");
+        bail!("{USAGE}");
     };
     let suite_name = suite
         .file_stem()

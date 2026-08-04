@@ -28,9 +28,19 @@ pub struct Envelope {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct SuiteInfo {
     pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// sha256 of the suite component the results were produced from,
+    /// hex. Cross-checked against the lockfile by `aggregate`.
+    #[serde(
+        default,
+        rename = "artifact-sha256",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub artifact_sha256: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "lockfile-sha256",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub lockfile_sha256: Option<String>,
 }
 
@@ -105,6 +115,19 @@ pub enum Status {
 impl Status {
     pub fn executed(self) -> bool {
         matches!(self, Status::Pass | Status::Fail | Status::Skipped)
+    }
+
+    /// The kebab-case schema word for this status (the wire vocabulary;
+    /// use it anywhere a status is shown to a human).
+    pub fn word(self) -> &'static str {
+        match self {
+            Status::Pass => "pass",
+            Status::Fail => "fail",
+            Status::Skipped => "skipped",
+            Status::NotReached => "not-reached",
+            Status::NotApplicable => "not-applicable",
+            Status::Deselected => "deselected",
+        }
     }
 }
 

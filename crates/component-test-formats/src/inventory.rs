@@ -19,6 +19,13 @@ pub fn collect_tags_sections(wasm: &[u8]) -> anyhow::Result<Vec<u8>> {
         if let Payload::CustomSection(reader) = payload.context("parsing wasm")? {
             if reader.name() == TAGS_SECTION {
                 out.extend_from_slice(reader.data());
+                // Records are newline-delimited *within* a section, but
+                // nothing guarantees a producer terminates its last
+                // record; without this, records from adjacent sections
+                // would fuse into one.
+                if out.last() != Some(&b'\n') {
+                    out.push(b'\n');
+                }
             }
         }
     }
@@ -78,17 +85,29 @@ pub fn parse_tags_records(bytes: &[u8]) -> anyhow::Result<Inventory> {
     Ok(inv)
 }
 
-/// Static inventory of a suite component.
-pub fn inventory(wasm: &[u8]) -> anyhow::Result<Inventory> {
+/// Static inventory of a suite component, distinguishing section
+/// absence from corruption: `Ok(None)` means no tags section is
+/// present (legitimate — suite not built with the SDK, or sections
+/// stripped by composition; see findings #14), while `Err` means a
+/// section exists but is malformed (always a harness bug — never
+/// degrade it to "no inventory").
+pub fn try_inventory(wasm: &[u8]) -> anyhow::Result<Option<Inventory>> {
     let sections = collect_tags_sections(wasm)?;
     if sections.is_empty() {
-        bail!("no `{TAGS_SECTION}` section found (suite not built with the SDK, or sections stripped)");
+        return Ok(None);
     }
     let mut inv = parse_tags_records(&sections)?;
     // Section record order is linker-determined; canonicalize.
     inv.cases.sort_by(|a, b| a.name.cmp(&b.name));
     inv.generated.sort_by(|a, b| a.prefix.cmp(&b.prefix));
-    Ok(inv)
+    Ok(Some(inv))
+}
+
+/// Static inventory of a suite component; absence is an error.
+pub fn inventory(wasm: &[u8]) -> anyhow::Result<Inventory> {
+    try_inventory(wasm)?.with_context(|| {
+        format!("no `{TAGS_SECTION}` section found (suite not built with the SDK, or sections stripped)")
+    })
 }
 
 #[cfg(test)]
@@ -120,5 +139,42 @@ mod tests {
         assert!(parse_tags_records(b"a/x\na/x\n").is_err());
         assert!(parse_tags_records(b"a/x Bad_Tag\n").is_err());
         assert!(parse_tags_records(b"a/x hsm !hsm\n").is_err());
+    }
+
+    /// Minimal core module: magic + version + the given custom
+    /// sections (payloads small enough for single-byte LEB sizes).
+    fn module_with_sections(sections: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut wasm = b"\0asm\x01\0\0\0".to_vec();
+        for (name, data) in sections {
+            let mut payload = vec![name.len() as u8];
+            payload.extend_from_slice(name.as_bytes());
+            payload.extend_from_slice(data);
+            assert!(payload.len() < 0x80, "single-byte LEB only");
+            wasm.push(0x00); // custom section id
+            wasm.push(payload.len() as u8);
+            wasm.extend_from_slice(&payload);
+        }
+        wasm
+    }
+
+    #[test]
+    fn sections_do_not_fuse_without_trailing_newline() {
+        let wasm = module_with_sections(&[
+            (TAGS_SECTION, b"a/x".as_slice()), // no trailing newline
+            (TAGS_SECTION, b"b/y hsm\nb/z !hsm\n".as_slice()),
+        ]);
+        let inv = try_inventory(&wasm).unwrap().unwrap();
+        let names: Vec<String> = inv.cases.iter().map(|c| c.name.to_string()).collect();
+        assert_eq!(names, ["a/x", "b/y", "b/z"]);
+    }
+
+    #[test]
+    fn absent_section_is_none_but_malformed_is_err() {
+        let bare = module_with_sections(&[]);
+        assert!(try_inventory(&bare).unwrap().is_none());
+        assert!(inventory(&bare).is_err());
+
+        let bad = module_with_sections(&[(TAGS_SECTION, b"Bad/Name\n".as_slice())]);
+        assert!(try_inventory(&bad).is_err());
     }
 }
