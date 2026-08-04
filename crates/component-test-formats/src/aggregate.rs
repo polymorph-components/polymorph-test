@@ -233,16 +233,51 @@ pub fn aggregate(
             errors.push(format!("target `{target}`: coverage: {e}"));
         }
 
-        // Applicability drift: the reported status must agree with the
-        // case's tags applied to this target's missing-features.
+        let mut target_results: BTreeMap<String, CaseResult> = doc
+            .results
+            .iter()
+            .map(|r| (r.case.clone(), r.clone()))
+            .collect();
+
+        // Applicability: for streams from tag-scheduling runners
+        // (`scheduling` absent or anything but "none"), the reported
+        // status must AGREE with the case's tags — an executed
+        // non-applicable case is manifest/adapter drift and stays an
+        // error. For execute-everything streams (`scheduling: none`,
+        // e.g. the composed runner, which cannot see the tags section
+        // — findings #14), this layer is the scheduler: executed
+        // non-applicable cases are reclassified to not-applicable in
+        // the host-embed shape, so downstream (matrix, has_failures,
+        // differential comparison) sees runner parity.
         if let Some(missing) = missing {
-            for r in &doc.results {
+            let scheduled = doc.envelope.scheduled();
+            let mut reclassified = 0usize;
+            let mut drift_smell = 0usize;
+            for r in target_results.values_mut() {
                 let Some(tags) = tags_for(&r.case) else {
                     continue; // coverage already flagged
                 };
                 let applies = tags.applies(missing);
                 match (applies, r.status) {
                     (false, Status::NotApplicable) | (false, Status::NotReached) => {}
+                    (false, _) if !scheduled => {
+                        let mark = tags.excluding_mark(missing);
+                        // A pass despite a *required* feature being
+                        // declared missing smells like the manifest is
+                        // wrong — preserve that scent of the strict
+                        // gate as a warning.
+                        if r.status == Status::Pass && mark.is_some_and(|m| !m.is_negative()) {
+                            drift_smell += 1;
+                        }
+                        reclassified += 1;
+                        r.status = Status::NotApplicable;
+                        r.provenance = None;
+                        r.detail = mark.map(|m| m.to_string());
+                        r.seed = None;
+                        r.duration_ms = None;
+                        r.diagnostics.clear();
+                        r.diagnostics_complete = true;
+                    }
                     (false, _) => errors.push(format!(
                         "target `{target}`: case `{}` reported {:?} but its tags make it \
                          not applicable given missing-features {missing:?}",
@@ -256,15 +291,23 @@ pub fn aggregate(
                     (true, _) => {}
                 }
             }
+            if reclassified > 0 {
+                let smell = if drift_smell > 0 {
+                    format!(
+                        "; {drift_smell} of them passed despite requiring a \
+                         declared-missing feature (manifest drift?)"
+                    )
+                } else {
+                    String::new()
+                };
+                warnings.push(format!(
+                    "target `{target}`: {reclassified} case(s) executed by an \
+                     unscheduled runner reclassified to not-applicable{smell}"
+                ));
+            }
         }
 
-        results.insert(
-            target.clone(),
-            doc.results
-                .iter()
-                .map(|r| (r.case.clone(), r.clone()))
-                .collect(),
-        );
+        results.insert(target.clone(), target_results);
     }
 
     for (target, decl) in &manifest.targets {
@@ -591,6 +634,108 @@ mod tests {
             "{:?}",
             agg.errors
         );
+    }
+
+    /// #36 option (b): a stream declaring `scheduling: none` (the
+    /// composed runner) gets applicability *applied* by this layer —
+    /// executed non-applicable cases are reclassified to the
+    /// host-embed not-applicable shape instead of erroring — while
+    /// scheduled/legacy streams keep the strict gate (previous test).
+    #[test]
+    fn unscheduled_stream_gets_applicability_applied() {
+        // The composed runner executes everything: on sim (hsm
+        // missing) the hsm case "ran" (and passed — drift smell), and
+        // the !hsm decline probe ran too.
+        let mut d = doc(
+            "sim",
+            vec![
+                result("suite/add", Status::Pass, None),
+                result("suite/hsm/attest", Status::Pass, None),
+                result("suite/hsm/declined", Status::Pass, None),
+            ],
+        );
+        d.envelope.run.scheduling = Some("none".into());
+        // native, also unscheduled: the !hsm decline probe executed
+        // (and failed, as decline probes do where the feature exists).
+        let mut n = doc(
+            "native",
+            vec![
+                result("suite/add", Status::Pass, None),
+                result("suite/hsm/attest", Status::Pass, None),
+                result("suite/hsm/declined", Status::Fail, Some("feature present")),
+            ],
+        );
+        n.envelope.run.scheduling = Some("none".into());
+
+        let agg = aggregate(
+            &corpus_lock(),
+            &manifest(MANIFEST),
+            &[("native".into(), n), ("sim".into(), d)],
+        );
+        assert!(agg.errors.is_empty(), "{:?}", agg.errors);
+
+        // Reclassified to exactly the host-embed shape: N/A with the
+        // excluding mark as detail, nothing else.
+        let sim_attest = &agg.results["sim"]["suite/hsm/attest"];
+        assert_eq!(sim_attest.status, Status::NotApplicable);
+        assert_eq!(sim_attest.detail.as_deref(), Some("hsm"));
+        assert_eq!(sim_attest.provenance, None);
+        assert!(sim_attest.diagnostics.is_empty());
+        let native_declined = &agg.results["native"]["suite/hsm/declined"];
+        assert_eq!(native_declined.status, Status::NotApplicable);
+        assert_eq!(native_declined.detail.as_deref(), Some("!hsm"));
+
+        // The reclassified fail no longer fails the corpus (that is
+        // the point: runner parity), and the drift smell is preserved
+        // as a warning on the stream where the required-feature case
+        // passed anyway.
+        assert!(!agg.has_failures(), "{:?}", agg.results);
+        assert!(agg.ok());
+        assert!(
+            agg.warnings
+                .iter()
+                .any(|w| w.contains("sim") && w.contains("reclassified") && w.contains("drift")),
+            "{:?}",
+            agg.warnings
+        );
+        assert!(
+            agg.warnings.iter().any(|w| w.contains("native")
+                && w.contains("reclassified")
+                && !w.contains("drift")),
+            "{:?}",
+            agg.warnings
+        );
+    }
+
+    /// The reclassified corpus must be indistinguishable from a
+    /// scheduled runner's corpus downstream.
+    #[test]
+    fn unscheduled_reclassification_matches_scheduled_results() {
+        let mut unscheduled = doc(
+            "sim",
+            vec![
+                result("suite/add", Status::Pass, None),
+                result("suite/hsm/attest", Status::Fail, Some("no hsm here")),
+                result("suite/hsm/declined", Status::Pass, None),
+            ],
+        );
+        unscheduled.envelope.run.scheduling = Some("none".into());
+        let mut agg_a = aggregate(
+            &corpus_lock(),
+            &manifest(MANIFEST),
+            &[("native".into(), native_doc()), ("sim".into(), unscheduled)],
+        );
+        let agg_b = aggregate(
+            &corpus_lock(),
+            &manifest(MANIFEST),
+            &[("native".into(), native_doc()), ("sim".into(), sim_doc())],
+        );
+        assert!(agg_a.errors.is_empty(), "{:?}", agg_a.errors);
+        assert_eq!(agg_a.results["sim"], agg_b.results["sim"]);
+        // Same rendered matrix once the reclassification warning (the
+        // only intended difference) is set aside.
+        agg_a.warnings.clear();
+        assert_eq!(crate::matrix::render(&agg_a), crate::matrix::render(&agg_b));
     }
 
     #[test]

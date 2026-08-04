@@ -62,6 +62,30 @@ pub struct RunInfo {
     pub started: Option<String>,
     #[serde(default)]
     pub segment: u32,
+    /// How the producer selected cases (additive vocabulary, kept as a
+    /// string so unknown future values parse):
+    /// - `"tags"`: the runner applied feature-tag scheduling
+    ///   (not-applicable cases were excluded, not executed)
+    /// - `"none"`: execute-everything (e.g. the composed wasi:cli
+    ///   runner, which cannot see the tags section — wac strips it)
+    /// - absent: legacy stream; consumers must assume `"tags"` (the
+    ///   strict direction: applicability drift stays an error).
+    ///
+    /// The aggregator uses this to decide between *policing*
+    /// applicability (scheduled streams: an executed non-applicable
+    /// case is manifest/adapter drift) and *applying* it (unscheduled
+    /// streams: executed non-applicable cases are reclassified).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduling: Option<String>,
+}
+
+impl Envelope {
+    /// Did the producer apply tag scheduling? Anything except an
+    /// explicit `"none"` counts as scheduled — unknown future
+    /// vocabulary defaults to the strict gate.
+    pub fn scheduled(&self) -> bool {
+        self.run.scheduling.as_deref() != Some("none")
+    }
 }
 
 /// One line of the JSONL stream after the envelope.
@@ -453,5 +477,31 @@ mod tests {
                 provenance
             );
         }
+    }
+
+    #[test]
+    fn scheduling_field_semantics() {
+        // Absent (legacy) and "tags" are scheduled; only an explicit
+        // "none" opts a stream out of the strict applicability gate;
+        // unknown future vocabulary stays strict.
+        let mut env = envelope();
+        assert!(env.scheduled());
+        env.run.scheduling = Some("tags".into());
+        assert!(env.scheduled());
+        env.run.scheduling = Some("none".into());
+        assert!(!env.scheduled());
+        env.run.scheduling = Some("phase-of-moon".into());
+        assert!(env.scheduled());
+
+        // Wire form + legacy tolerance both directions.
+        env.run.scheduling = Some("none".into());
+        let json = serde_json::to_string(&env).unwrap();
+        assert!(json.contains(r#""scheduling":"none""#), "{json}");
+        let back: Envelope = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, env);
+        let legacy = r#"{"component-test-results":"0.1","target":"t","suite":{"name":"s"},"run":{"segment":0}}"#;
+        let parsed: Envelope = serde_json::from_str(legacy).unwrap();
+        assert!(parsed.scheduled());
+        assert_eq!(parsed.run.scheduling, None);
     }
 }

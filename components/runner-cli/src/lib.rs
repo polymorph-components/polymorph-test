@@ -143,7 +143,11 @@ impl RunGuest for Runner {
             // `wac plug`), so it cannot know the suite's name; a
             // neutral one beats the lie of a hardcoded one. No
             // artifact hash either: the composed binary has no access
-            // to the suite artifact's bytes.
+            // to the suite artifact's bytes. And it is
+            // execute-everything (wac strips the tags section —
+            // findings #14): `scheduling: none` tells the aggregator
+            // to *apply* applicability from lockfile + manifest
+            // instead of policing it.
             let envelope = Envelope {
                 version: RESULTS_VERSION.into(),
                 target: "composed-cli".into(),
@@ -151,7 +155,10 @@ impl RunGuest for Runner {
                     name: "composed".into(),
                     ..Default::default()
                 },
-                run: RunInfo::default(),
+                run: RunInfo {
+                    scheduling: Some("none".into()),
+                    ..Default::default()
+                },
             };
             out.line(&serde_json::to_string(&envelope).expect("serialize envelope"))
                 .await;

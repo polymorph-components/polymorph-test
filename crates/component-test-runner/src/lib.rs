@@ -468,23 +468,30 @@ impl<D: RunnerView + 'static> Runner<D> {
         };
 
         if !human {
-            let envelope =
-                Envelope {
-                    version: RESULTS_VERSION.into(),
-                    target: target.into(),
-                    suite: SuiteInfo {
-                        name: suite_name.into(),
-                        // Binds the results to the exact suite build;
-                        // `aggregate` cross-checks it against the lockfile.
-                        // A composed run overrides this with the suite
-                        // component's own hash (`bind_suite_artifact`).
-                        artifact_sha256: Some(self.suite_artifact_sha256.clone().unwrap_or_else(
-                            || component_test_formats::sha256_hex(&self.wasm_bytes),
-                        )),
-                        ..Default::default()
-                    },
-                    run: RunInfo::default(),
-                };
+            let envelope = Envelope {
+                version: RESULTS_VERSION.into(),
+                target: target.into(),
+                suite: SuiteInfo {
+                    name: suite_name.into(),
+                    // Binds the results to the exact suite build;
+                    // `aggregate` cross-checks it against the lockfile.
+                    // A composed run overrides this with the suite
+                    // component's own hash (`bind_suite_artifact`).
+                    artifact_sha256: Some(self.suite_artifact_sha256.clone().unwrap_or_else(
+                        || component_test_formats::sha256_hex(&self.wasm_bytes),
+                    )),
+                    ..Default::default()
+                },
+                run: RunInfo {
+                    // Without an inventory this runner is
+                    // execute-everything too (composed bundles: wac
+                    // strips the tags section); say so, so the
+                    // aggregator applies applicability instead of
+                    // policing it.
+                    scheduling: Some(if inventory.is_some() { "tags" } else { "none" }.into()),
+                    ..Default::default()
+                },
+            };
             println!("{}", serde_json::to_string(&envelope)?);
         }
 

@@ -455,6 +455,39 @@ fn aggregate_artifact_hash_mismatch_fails() {
 }
 
 #[test]
+fn aggregate_applies_applicability_for_unscheduled_streams() {
+    // The composed-runner topology (#36): an execute-everything stream
+    // declares `scheduling: none`; aggregate reclassifies executed
+    // non-applicable cases instead of erroring, and the corpus is
+    // clean despite the decline probe "running" on sim.
+    let sim = agg_stream(
+        "sim",
+        &[
+            ("a/add", "pass", None),
+            ("a/hsm/attest", "fail", Some("no hsm on sim")),
+            ("a/hsm/declined", "pass", None),
+        ],
+    )
+    .replace(
+        r#""run":{"segment":0}"#,
+        r#""run":{"segment":0,"scheduling":"none"}"#,
+    );
+    let out = aggregate("agg-unscheduled", &native_ok(), &sim);
+    assert_eq!(
+        out.code, 0,
+        "stdout: {}\nstderr: {}",
+        out.stdout, out.stderr
+    );
+    assert!(out.stderr.contains("reclassified"), "{}", out.stderr);
+    assert!(
+        out.stdout
+            .contains("2 targets, 6 results, 0 failing, 0 validation error(s)"),
+        "{}",
+        out.stdout
+    );
+}
+
+#[test]
 fn aggregate_missing_args() {
     let out = run(&["aggregate", "--manifest", "x.toml"], None);
     assert_eq!(out.code, 1);

@@ -89,9 +89,12 @@ fn fixture_default_run_pins_per_case_semantics() {
     let (envelope, cases, terminated) = parse_jsonl(&run.stdout);
     assert!(terminated);
 
-    // Envelope: artifact binding present and correct.
+    // Envelope: artifact binding present and correct; scheduling
+    // declared (this runner applies tag scheduling when an inventory
+    // is present).
     assert_eq!(envelope["component-test-results"], "0.1");
     assert_eq!(envelope["suite"]["name"], "fixture_suite");
+    assert_eq!(envelope["run"]["scheduling"], "tags");
     let bytes = std::fs::read(&wasm).unwrap();
     assert_eq!(
         envelope["suite"]["artifact-sha256"],

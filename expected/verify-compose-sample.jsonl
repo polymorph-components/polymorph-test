@@ -1,4 +1,4 @@
-{"component-test-results":"0.1","target":"composed-cli","suite":{"name":"composed"},"run":{"segment":0}}
+{"component-test-results":"0.1","target":"composed-cli","suite":{"name":"composed"},"run":{"segment":0,"scheduling":"none"}}
 {"case":"sample/math/add","status":"pass","provenance":"returned","diagnostics":["computing 2 + 2","got 4"],"diagnostics-complete":true}
 {"case":"sample/math/mul","status":"fail","provenance":"returned","detail":"6 * 9: expected 42, got 54","diagnostics":["computing 6 * 9","got 54, expecting the ultimate answer"],"diagnostics-complete":true}
 {"case":"sample/token/attest","status":"skipped","provenance":"returned","detail":"token unavailable at run time; asserted attestation fails cleanly (no hang, no partial attestation)","diagnostics":["probing for hardware token","token unavailable; asserting clean error"],"diagnostics-complete":true}

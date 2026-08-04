@@ -29,6 +29,10 @@ applicability drift, unterminated segments, run errors.
 `just verify-aggregate` runs exactly this and diffs `matrix.md`
 against `expected/verify-aggregate-matrix.md`.
 
-Note the composed (wasi:cli) runner is feature-blind (wac strips the
-tags section — findings #14), so tagged suites go through host-embed
-runners for aggregation today; see issue #36.
+Note the composed (wasi:cli) runner is execute-everything — wac strips
+the tags section (findings #14), so it cannot schedule. Its streams
+declare `"scheduling":"none"` in the envelope, and the aggregator
+*applies* applicability for them (executed non-applicable cases are
+reclassified to `not-applicable`, with a warning) instead of policing
+it. Host-embed streams declare `"scheduling":"tags"` and stay under
+the strict drift gate.

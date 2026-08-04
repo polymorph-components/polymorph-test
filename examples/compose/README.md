@@ -22,6 +22,14 @@ wasmtime run -W component-model-async -S p3 --env COMPONENT_TEST_JSONL=1 compose
   | component-test fold ../../components/sample-suite/tests.lock
 ```
 
+This runner is execute-everything: wac strips the tags custom section
+(findings #14), so it cannot apply feature-tag scheduling. Its
+envelope says so (`"scheduling":"none"`), and `component-test
+aggregate` applies applicability for such streams from the lockfile +
+target manifest — executed non-applicable cases are reclassified to
+`not-applicable`, matching the host-embed runner's output shape (see
+`examples/aggregate/`).
+
 `compose.wac` is the equivalent one-shot three-node composition.
 
 Note: `wac plug` alone cannot build the bundle — it drops the
