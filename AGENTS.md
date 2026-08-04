@@ -57,6 +57,8 @@ components/           guest components (build with --target wasm32-wasip2)
   runner-cli               composed wasi:cli runner core
   sample-suite             demo suite (pass/fail/runtime-skip; #[suite] DX)
   fixture-suite            runner fixture (trap, tagged pair, generated row)
+  drift-fixture            broken by design: raw registration, drift check
+  zero-gen-fixture         broken by design: zero-row decline generator
 js/runner-node/       Node runner via jco (runner-is-provider topology)
 examples/compose/     wac composition walkthrough (bundle-then-plug)
 expected/             golden outputs diffed by the verify recipes

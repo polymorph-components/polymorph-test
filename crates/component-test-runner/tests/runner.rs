@@ -23,7 +23,11 @@ fn workspace_root() -> PathBuf {
 }
 
 fn fixture_wasm() -> PathBuf {
-    let path = workspace_root().join("target/wasm32-wasip2/release/fixture_suite.wasm");
+    suite_artifact("fixture_suite")
+}
+
+fn suite_artifact(name: &str) -> PathBuf {
+    let path = workspace_root().join(format!("target/wasm32-wasip2/release/{name}.wasm"));
     assert!(
         path.exists(),
         "missing {} — run `just build` first (this test is wasm-gated)",
@@ -244,4 +248,48 @@ fn malformed_tags_section_is_fatal_not_ignored() {
         run.stderr
     );
     assert!(run.stderr.contains("Bad_Tag"), "{}", run.stderr);
+}
+
+/// The `all()`-only drift direction: a `#[case_row]` fn registering a
+/// name outside its prefix record (raw `Registry` access). The other
+/// direction (section-only) is covered above by section appending.
+#[test]
+#[ignore = "needs built components: run via `just test-wasm`"]
+fn raw_registration_trips_drift_cross_check() {
+    let wasm = suite_artifact("drift_fixture");
+    let run = ct_runner(&[wasm.to_str().unwrap()]);
+    assert_eq!(run.code, 2, "stdout: {}", run.stdout);
+    assert!(run.stderr.contains("inventory drift"), "{}", run.stderr);
+    assert!(
+        run.stderr.contains("all()-only") && run.stderr.contains("driftfix/rogue-unrecorded"),
+        "{}",
+        run.stderr
+    );
+}
+
+/// A `!feature` prefix record whose generator materializes zero rows
+/// satisfies the static decline-pair lint but provides no decline
+/// coverage: the runner's materialized check must refuse the run.
+#[test]
+#[ignore = "needs built components: run via `just test-wasm`"]
+fn zero_row_generator_cannot_satisfy_decline_pair() {
+    let wasm = suite_artifact("zero_gen_fixture");
+    let run = ct_runner(&[wasm.to_str().unwrap()]);
+    assert_eq!(run.code, 2, "stdout: {}", run.stdout);
+    assert!(run.stderr.contains("decline-pair check"), "{}", run.stderr);
+    assert!(
+        run.stderr.contains("phantom") && run.stderr.contains("zero-row generator"),
+        "{}",
+        run.stderr
+    );
+}
+
+/// A `--only` filter matching nothing is an empty selection, not a
+/// vacuous green run.
+#[test]
+#[ignore = "needs built components: run via `just test-wasm`"]
+fn only_matching_nothing_is_a_run_error() {
+    let run = ct_runner(&[fixture_wasm().to_str().unwrap(), "--only", "zzz-no-match"]);
+    assert_eq!(run.code, 2, "stdout: {}", run.stdout);
+    assert!(run.stderr.contains("matches no cases"), "{}", run.stderr);
 }

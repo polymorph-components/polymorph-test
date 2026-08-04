@@ -32,10 +32,12 @@ test-wasm: build
     cargo test -p component-test-runner -p component-test-cli \
         --tests -- --ignored
 
-# Build all guest components.
+# Build all guest components (the two *-fixture suites are broken by
+# design: runner fixtures for the drift and zero-row hard errors).
 build:
     cargo build --target {{wasm_target}} --release \
-        -p sample-suite -p provider -p runner-cli -p fixture-suite
+        -p sample-suite -p provider -p runner-cli -p fixture-suite \
+        -p drift-fixture -p zero-gen-fixture
 
 # --- verification matrix (AGENTS.md "Build & verify") -----------------
 #

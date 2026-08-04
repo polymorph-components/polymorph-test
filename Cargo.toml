@@ -7,10 +7,12 @@ members = [
     "crates/component-test-sdk-macro",
     "crates/component-test-cli",
     "crates/component-test-runner",
+    "components/drift-fixture",
     "components/fixture-suite",
     "components/provider",
     "components/runner-cli",
     "components/sample-suite",
+    "components/zero-gen-fixture",
 ]
 # Host-side crates only: `components/*` build for wasm32-wasip2 and a
 # native `cargo test` on them proves nothing even where it compiles.
