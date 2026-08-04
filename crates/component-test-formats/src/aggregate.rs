@@ -10,7 +10,8 @@
 //!   [`Manifest::validate`])
 //! - dead declarations: a declared feature no lockfile tag references
 //! - unknown targets (results for a target the manifest doesn't
-//!   declare) and silent targets (declared but no results)
+//!   declare) and silent targets (declared but no results; a warning
+//!   instead for targets declared `optional = true`)
 //! - per-target coverage against the lockfile (every case reported
 //!   exactly once; generated leaves under their prefix)
 //! - applicability drift: a case's reported status must agree with
@@ -218,9 +219,15 @@ pub fn aggregate(
         );
     }
 
-    for target in manifest.targets.keys() {
+    for (target, decl) in &manifest.targets {
         if !seen_targets.contains(target.as_str()) {
-            errors.push(format!("target `{target}`: no results"));
+            if decl.optional {
+                warnings.push(format!(
+                    "target `{target}`: no results (declared optional)"
+                ));
+            } else {
+                errors.push(format!("target `{target}`: no results"));
+            }
         }
     }
 
@@ -375,6 +382,45 @@ mod tests {
             agg.errors
                 .iter()
                 .any(|e| e.contains("`sim`") && e.contains("no results")),
+            "{:?}",
+            agg.errors
+        );
+    }
+
+    #[test]
+    fn silent_optional_target_is_warning() {
+        let optional = manifest(
+            r#"
+            version = "0.1"
+            [features.hsm]
+            kind = "gated"
+            [targets.native]
+            missing-features = []
+            [targets.sim]
+            missing-features = ["hsm"]
+            optional = true
+        "#,
+        );
+        let agg = aggregate(&corpus_lock(), &optional, &[("native".into(), native_doc())]);
+        assert!(agg.errors.is_empty(), "{:?}", agg.errors);
+        assert!(
+            agg.warnings
+                .iter()
+                .any(|w| w.contains("`sim`") && w.contains("no results")),
+            "{:?}",
+            agg.warnings
+        );
+        // When the optional target does report, it is validated like any
+        // other target: an applicability drift is still an error.
+        let mut drifted = sim_doc();
+        drifted.results[1] = result("suite/hsm/attest", Status::Pass, None);
+        let agg = aggregate(
+            &corpus_lock(),
+            &optional,
+            &[("native".into(), native_doc()), ("sim".into(), drifted)],
+        );
+        assert!(
+            agg.errors.iter().any(|e| e.contains("not applicable")),
             "{:?}",
             agg.errors
         );

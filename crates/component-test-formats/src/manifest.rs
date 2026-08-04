@@ -54,6 +54,12 @@ pub struct Target {
     /// unlisted features are served.
     #[serde(default, rename = "missing-features")]
     pub missing_features: Vec<String>,
+    /// An optional target's absent results are a warning, not an error:
+    /// for targets whose environment is not always available (e.g. a
+    /// browser gate that runs in CI and behind a local opt-in). Present
+    /// results are validated exactly like any other target's.
+    #[serde(default)]
+    pub optional: bool,
 }
 
 impl Manifest {
@@ -119,6 +125,22 @@ mod tests {
             ["chacha20-poly1305".to_string()]
         );
         assert!(m.missing("nonexistent").is_none());
+        assert!(!m.targets["jco-node"].optional);
+    }
+
+    #[test]
+    fn optional_target_parses() {
+        let m = Manifest::from_toml(
+            r#"
+            version = "0.1"
+            [targets.browser]
+            missing-features = []
+            optional = true
+        "#,
+        )
+        .unwrap();
+        m.validate().unwrap();
+        assert!(m.targets["browser"].optional);
     }
 
     #[test]
