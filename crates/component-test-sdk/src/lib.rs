@@ -7,11 +7,11 @@
 //! bypasses the static inventory and will trip the runner's drift
 //! cross-check.
 //!
-//! Deliberately independent of wit-bindgen: the suite crate owns its
-//! generated bindings (and their `Context` type); this crate provides
-//! the registry, name validation, tags, and verdict ergonomics that
-//! the thin generated-glue delegates to. (Macro sugar that hides the
-//! glue entirely is tracked for later in M1.1.)
+//! This crate owns the contract bindings (see [`bindings`], generated
+//! from the symlinked contract WIT): suite crates depend only on this
+//! SDK and need neither a wit dir nor a wit-bindgen dependency of
+//! their own. A suite that imports a system-under-test adds a separate
+//! plain `wit_bindgen::generate!` for *that* surface only.
 
 use std::future::Future;
 use std::pin::Pin;

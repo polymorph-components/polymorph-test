@@ -4,10 +4,12 @@
 //! `#[case_generator]` rows; derives case names from the module path
 //! (idents mapped `_` → `-`); resolves tag inheritance
 //! (nearest-declaration-per-feature wins); validates names/tags and the
-//! decline-pair lint at expansion; and emits the contract bindings
-//! (WIT embedded at macro build time — consumers never vendor it),
-//! the registry, the glue impls, the `export!`, and the
-//! `component-test:tags@0.1` inventory records.
+//! decline-pair lint at expansion; and emits the registry, the glue
+//! impls, the `export!`, and the `component-test:tags@0.1` inventory
+//! records. The contract bindings themselves live in
+//! `component_test_sdk::bindings` (generated there from the symlinked
+//! WIT); this macro only emits references to them, so suite crates
+//! never vendor WIT.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
@@ -44,7 +46,7 @@ use syn::{
 ///     }
 ///
 ///     #[case_generator(prefix = "gen")] // runtime leaves under a static prefix
-///     fn cases() -> impl Iterator<Item = Case<TestContext>> {
+///     fn cases() -> impl Iterator<Item = Case> {
 ///         (1..=2).map(|n| gen_case!(format!("tc{n}"), |ctx| async move {
 ///             ctx.diag(format!("case {n}")).await;
 ///             Ok(())
@@ -82,9 +84,9 @@ use syn::{
 ///   expensive shared tables.
 /// - The SDK prelude and `TestContext` are auto-imported in every
 ///   module of the tree; suite files need no `use` lines.
-/// - The contract WIT is embedded by this macro: the crate needs no
-///   `wit/` directory (SUT imports go in a separate plain
-///   `wit_bindgen::generate!`).
+/// - The contract bindings come from `component_test_sdk::bindings`:
+///   the suite crate needs no `wit/` directory (SUT imports go in a
+///   separate plain `wit_bindgen::generate!`).
 #[proc_macro_attribute]
 pub fn suite(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut module = parse_macro_input!(item as ItemMod);

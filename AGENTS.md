@@ -49,8 +49,8 @@ crates/               host-side Rust (tested natively at root)
   component-test-core      name grammar, tags, verdicts
   component-test-formats   lockfile, results model/JSONL, inventory scanner
   component-test-sdk       guest SDK (registry, prelude, verdict ergonomics)
-  component-test-sdk-macro #[suite] attribute (embeds the contract WIT)
-  component-test-cli       `component-test` bin: lock, fold
+  component-test-sdk-macro #[suite] attribute (case discovery, tags section)
+  component-test-cli       `component-test` bin: lock, fold, aggregate
   component-test-runner    wasmtime host-embed runner (`ct-runner` bin)
 components/           guest components (build with --target wasm32-wasip2)
   provider                 reference context provider
@@ -59,6 +59,7 @@ components/           guest components (build with --target wasm32-wasip2)
   fixture-suite            runner fixture (trap, tagged pair, generated row)
 js/runner-node/       Node runner via jco (runner-is-provider topology)
 examples/compose/     wac composition walkthrough (bundle-then-plug)
+expected/             golden outputs diffed by the verify recipes
 docs/findings.md      toolchain findings log
 ```
 
@@ -66,24 +67,29 @@ docs/findings.md      toolchain findings log
 `components/runner-cli` wit trees link back to the canonical copies
 (`wit/` for the contract; `components/provider/wit/provider.wit` for
 the provider WIT) — validate with `just wit-check`. Suite crates have
-no wit dir at all: the `#[suite]` macro embeds the contract WIT
-(symlinked into `crates/component-test-sdk-macro/`). Don't replace
-links with copies; symlinks require `core.symlinks` on Windows.
+no wit dir at all: the SDK crate generates the contract bindings from
+its own symlink (`crates/component-test-sdk/tests.wit` → `wit/tests.wit`),
+and the `#[suite]` macro emits references to them. Don't replace links
+with copies; symlinks require `core.symlinks` on Windows.
 
 ## Toolchain
 
 wasmtime 47 (`-W component-model-async -S p3`), wac-cli 0.10, wit-bindgen
 0.60, jco 1.26 (via npx), Node 24 (`--experimental-wasm-jspi`), Rust
-target `wasm32-wasip2`. Known sharp edges are catalogued in
-`docs/findings.md` — read it before fighting the toolchain; your bug is
-probably finding #5, #6, or #13.
+target `wasm32-wasip2`, wasm-tools (WIT validation), just (task
+runner). Known sharp edges are catalogued in `docs/findings.md` — read
+it before fighting the toolchain; your bug is probably finding #5, #6,
+or #13.
 
 ## Build & verify
 
 Recipes live in the `justfile` (`just` lists them): `just test` (host
 crates), `just build` (components), `just all` (the full matrix below),
-`just lock-check` / `just lock-update`, `just wit-sync` / `just
-wit-check`. The underlying commands, for when you need them directly:
+`just lock-check` / `just lock-update`, `just wit-check`. The verify
+recipes assert exit codes *and* diff runner/fold output byte-for-byte
+against `expected/` — when you intentionally change output or suite
+cases, regenerate the affected `expected/` files and review the diff.
+The underlying commands, for when you need them directly:
 
 Host crates (fast, run this always):
 
@@ -137,8 +143,9 @@ surface). Never hand-edit.
 
 - Rust 2021, workspace deps in the root `Cargo.toml`. `crates/` =
   host-side (must build and test natively); `components/` = guest-side
-  (wasm32-wasip2 only; native `cargo test` will fail on them — that's
-  why the test command above excludes them).
+  (built for wasm32-wasip2 only; excluded from the host test/lint
+  commands above — a native `cargo test` on them proves nothing even
+  where it happens to compile).
 - One-line trap/fail details; diagnostics are the sideband for detail.
 - Commit style: imperative summary line, body explains *why* and records
   findings. Verification results belong in the commit body when they
@@ -165,6 +172,8 @@ surface). Never hand-edit.
   `#[case_generator]`, whose prefix record keeps the inventory honest;
   raw `Registry` registration bypasses inventory and will trip the
   runner's drift cross-check.
-- The sample suite's expected output is asserted byte-for-byte in
-  multiple places (runner acceptance, examples, jco README). If you
-  change its cases, update all of them and the lockfile.
+- The sample and fixture suites' expected outputs are asserted
+  byte-for-byte by the `just verify-*` recipes against `expected/`
+  (all four paths). If you change their cases or any runner/fold
+  output format, regenerate the affected `expected/` files and the
+  lockfiles, and commit the diffs.
