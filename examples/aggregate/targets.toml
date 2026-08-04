@@ -2,6 +2,11 @@
 # targets, one gated feature. `native` serves hsm; `sim` declares it
 # missing, so hsm-tagged cases are not-applicable there and the
 # `!hsm` decline probe runs there instead.
+#
+# The fixture's deliberate trap is declared expected-fail (#48) on
+# both targets: tracked debt keeps the corpus green without deleting
+# the test, and if the case ever passes, the stale declaration fails
+# validation until it is removed.
 version = "0.1"
 
 [features.hsm]
@@ -10,5 +15,15 @@ kind = "gated"
 [targets.native]
 missing-features = []
 
+[[targets.native.expected-fail]]
+case = "fixture/trap/boom"
+reason = "deliberate trap: the fixture pins the runner's poisoning containment"
+tracking = "https://github.com/lann/component-test/issues/45"
+
 [targets.sim]
 missing-features = ["hsm"]
+
+[[targets.sim.expected-fail]]
+case = "fixture/trap/boom"
+reason = "deliberate trap: the fixture pins the runner's poisoning containment"
+tracking = "https://github.com/lann/component-test/issues/45"

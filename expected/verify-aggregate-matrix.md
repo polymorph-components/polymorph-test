@@ -2,18 +2,18 @@
 
 | Case | native | sim |
 | --- | --- | --- |
-| fixture (8 cases) | 1 FAIL, 1 N/A, 6 pass | 1 FAIL, 1 N/A, 6 pass |
+| fixture (8 cases) | 1 N/A, 6 pass, 1 xfail | 1 N/A, 6 pass, 1 xfail |
 
 ## Failures
 
-- `native` `fixture/trap/boom` FAIL: wasm trap: wasm `unreachable` instruction executed
-  - diag: about to trap
-  - (diagnostics truncated)
-- `sim` `fixture/trap/boom` FAIL: wasm trap: wasm `unreachable` instruction executed
-  - diag: about to trap
-  - (diagnostics truncated)
+None.
+
+## Expected failures
+
+- `native` `fixture/trap/boom`: deliberate trap: the fixture pins the runner's poisoning containment (https://github.com/lann/component-test/issues/45)
+- `sim` `fixture/trap/boom`: deliberate trap: the fixture pins the runner's poisoning containment (https://github.com/lann/component-test/issues/45)
 
 ## Summary
 
-- `native`: 1 FAIL, 1 N/A, 6 pass (8 total)
-- `sim`: 1 FAIL, 1 N/A, 6 pass (8 total)
+- `native`: 1 N/A, 6 pass, 1 xfail (8 total)
+- `sim`: 1 N/A, 6 pass, 1 xfail (8 total)

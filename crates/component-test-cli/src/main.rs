@@ -311,16 +311,22 @@ fn aggregate_cmd(args: &[String]) -> anyhow::Result<()> {
     }
     let mut failures = 0usize;
     let mut total = 0usize;
-    for results in agg.results.values() {
+    for (target, results) in &agg.results {
         for r in results.values() {
             total += 1;
-            if r.status.failing() {
+            if agg.result_failing(target, r) {
                 failures += 1;
             }
         }
     }
+    let expected_fail = agg.expected_fail_count();
+    let expected = if expected_fail > 0 {
+        format!(" ({expected_fail} expected-fail)")
+    } else {
+        String::new()
+    };
     println!(
-        "{} targets, {total} results, {failures} failing, {} validation error(s){}",
+        "{} targets, {total} results, {failures} failing{expected}, {} validation error(s){}",
         agg.targets.len(),
         agg.errors.len(),
         out_path

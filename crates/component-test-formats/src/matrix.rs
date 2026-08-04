@@ -7,7 +7,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::aggregate::Aggregate;
+use crate::aggregate::{Aggregate, Assessment};
 use crate::results::Status;
 
 /// Group cases at the shallowest prefix whose members are uniform per
@@ -37,6 +37,17 @@ fn word(status: Status) -> &'static str {
         Status::NotApplicable => "N/A",
         Status::Deselected => "deselected",
         _ => status.word(),
+    }
+}
+
+/// Cell word with the expected-fail assessment applied (#48): tracked
+/// debt is quiet (`xfail`), an unexpected pass shouts (`XPASS` — it is
+/// also a validation error).
+fn cell_word(agg: &Aggregate, target: &str, case: &str, status: Status) -> &'static str {
+    match agg.assessments.get(target).and_then(|m| m.get(case)) {
+        Some(Assessment::ExpectedFail { .. }) => "xfail",
+        Some(Assessment::UnexpectedPass) => "XPASS",
+        None => word(status),
     }
 }
 
@@ -88,22 +99,23 @@ pub fn render(agg: &Aggregate) -> String {
     md.push('\n');
 
     for (group, members) in &groups {
-        // A cell is uniform when every member has the same status for
+        // A cell is uniform when every member renders the same word for
         // that target; the group collapses when all cells are uniform.
-        let cells: Vec<Option<Status>> = agg
+        let cells: Vec<Option<&'static str>> = agg
             .targets
             .iter()
             .map(|target| {
-                let statuses: BTreeSet<&'static str> = members
+                let words: BTreeSet<&'static str> = members
                     .iter()
-                    .filter_map(|case| agg.results.get(target).and_then(|m| m.get(*case)))
-                    .map(|r| word(r.status))
+                    .filter_map(|case| {
+                        agg.results
+                            .get(target)
+                            .and_then(|m| m.get(*case))
+                            .map(|r| cell_word(agg, target, case, r.status))
+                    })
                     .collect();
-                match statuses.len() {
-                    1 => members
-                        .iter()
-                        .find_map(|case| agg.results.get(target).and_then(|m| m.get(*case)))
-                        .map(|r| r.status),
+                match words.len() {
+                    1 => words.into_iter().next(),
                     _ => None,
                 }
             })
@@ -116,20 +128,22 @@ pub fn render(agg: &Aggregate) -> String {
             };
             md.push_str(&format!("| {label} |"));
             for cell in &cells {
-                md.push_str(&format!(" {} |", word(cell.unwrap())));
+                md.push_str(&format!(" {} |", cell.unwrap()));
             }
             md.push('\n');
         } else {
             md.push_str(&format!("| {group} ({} cases) |", members.len()));
             for (target, uniform) in agg.targets.iter().zip(&cells) {
-                if let Some(status) = uniform {
-                    md.push_str(&format!(" {} |", word(*status)));
+                if let Some(cell) = uniform {
+                    md.push_str(&format!(" {cell} |"));
                     continue;
                 }
                 let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
                 for case in members {
                     if let Some(r) = agg.results.get(target).and_then(|m| m.get(*case)) {
-                        *counts.entry(word(r.status)).or_default() += 1;
+                        *counts
+                            .entry(cell_word(agg, target, case, r.status))
+                            .or_default() += 1;
                     }
                 }
                 if counts.is_empty() {
@@ -155,7 +169,7 @@ pub fn render(agg: &Aggregate) -> String {
             continue;
         };
         for r in results.values() {
-            if !r.status.failing() {
+            if !agg.result_failing(target, r) {
                 continue;
             }
             any = true;
@@ -178,6 +192,23 @@ pub fn render(agg: &Aggregate) -> String {
     }
     md.push('\n');
 
+    // Tracked debt with its paper trail (#48). Unexpected passes are
+    // validation errors and render in that section.
+    if agg.expected_fail_count() > 0 {
+        md.push_str("## Expected failures\n\n");
+        for target in &agg.targets {
+            let Some(assessed) = agg.assessments.get(target) else {
+                continue;
+            };
+            for (case, assessment) in assessed {
+                if let Assessment::ExpectedFail { reason, tracking } = assessment {
+                    md.push_str(&format!("- `{target}` `{case}`: {reason} ({tracking})\n"));
+                }
+            }
+        }
+        md.push('\n');
+    }
+
     md.push_str("## Summary\n\n");
     for target in &agg.targets {
         let Some(results) = agg.results.get(target) else {
@@ -186,7 +217,9 @@ pub fn render(agg: &Aggregate) -> String {
         };
         let mut counts: BTreeMap<&'static str, usize> = BTreeMap::new();
         for r in results.values() {
-            *counts.entry(word(r.status)).or_default() += 1;
+            *counts
+                .entry(cell_word(agg, target, &r.case, r.status))
+                .or_default() += 1;
         }
         let parts = counts
             .iter()
@@ -249,6 +282,7 @@ mod tests {
         let agg = Aggregate {
             targets: vec!["native".into(), "sim".into()],
             results,
+            assessments: BTreeMap::new(),
             errors: vec![],
             warnings: vec![],
         };
@@ -270,6 +304,74 @@ mod tests {
 
 - `native`: 1 N/A, 2 pass (3 total)
 - `sim`: 1 FAIL, 2 pass (3 total)
+";
+        assert_eq!(md, expected, "rendered:\n{md}");
+    }
+
+    /// Expected-fail assessments (#48): xfail renders quiet, an
+    /// unexpected pass shouts, the tracked debt gets its own section
+    /// with the paper trail, and an assessed fail leaves the Failures
+    /// section.
+    #[test]
+    fn snapshot_with_assessments() {
+        let mut results: BTreeMap<String, BTreeMap<String, CaseResult>> = BTreeMap::new();
+        results.insert(
+            "sim".into(),
+            [
+                result("ws/close/code", Status::Fail, Some("wrong close code")),
+                result("ws/open/basic", Status::Pass, None),
+            ]
+            .into(),
+        );
+        let mut assessments: BTreeMap<String, BTreeMap<String, crate::aggregate::Assessment>> =
+            BTreeMap::new();
+        assessments.insert(
+            "sim".into(),
+            [
+                (
+                    "ws/close/code".to_string(),
+                    Assessment::ExpectedFail {
+                        reason: "close codes unavailable under the shim".into(),
+                        tracking: "https://example.test/issues/17".into(),
+                    },
+                ),
+                ("ws/open/basic".to_string(), Assessment::UnexpectedPass),
+            ]
+            .into(),
+        );
+        let agg = Aggregate {
+            targets: vec!["sim".into()],
+            results,
+            assessments,
+            errors: vec!["target `sim`: expected-fail case `ws/open/basic` passed — \
+                          remove the stale declaration (reason was: r; tracking: t)"
+                .into()],
+            warnings: vec![],
+        };
+        assert!(!agg.result_failing("sim", &agg.results["sim"]["ws/close/code"]));
+        let md = render(&agg);
+        let expected = "\
+# Test matrix
+
+## Validation errors
+
+- target `sim`: expected-fail case `ws/open/basic` passed — remove the stale declaration (reason was: r; tracking: t)
+
+| Case | sim |
+| --- | --- |
+| ws (2 cases) | 1 XPASS, 1 xfail |
+
+## Failures
+
+None.
+
+## Expected failures
+
+- `sim` `ws/close/code`: close codes unavailable under the shim (https://example.test/issues/17)
+
+## Summary
+
+- `sim`: 1 XPASS, 1 xfail (2 total)
 ";
         assert_eq!(md, expected, "rendered:\n{md}");
     }

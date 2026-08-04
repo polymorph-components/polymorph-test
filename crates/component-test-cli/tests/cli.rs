@@ -344,8 +344,12 @@ fn agg_stream(target: &str, results: &[(&str, &str, Option<&str>)]) -> String {
 }
 
 fn aggregate(id: &str, native: &str, sim: &str) -> Output {
+    aggregate_with_manifest(id, AGG_MANIFEST, native, sim)
+}
+
+fn aggregate_with_manifest(id: &str, manifest_toml: &str, native: &str, sim: &str) -> Output {
     let lock = tmpfile(&format!("{id}.lock"), AGG_LOCK);
-    let manifest = tmpfile(&format!("{id}-targets.toml"), AGG_MANIFEST);
+    let manifest = tmpfile(&format!("{id}-targets.toml"), manifest_toml);
     let native_path = tmpfile(&format!("{id}-native.jsonl"), native);
     let sim_path = tmpfile(&format!("{id}-sim.jsonl"), sim);
     run(
@@ -515,6 +519,67 @@ fn aggregate_missing_args() {
     let out = run(&["aggregate", "--manifest", "x.toml"], None);
     assert_eq!(out.code, 1);
     assert!(out.stderr.contains("missing --lock"), "{}", out.stderr);
+}
+
+const AGG_XFAIL_MANIFEST: &str = r#"
+version = "0.1"
+[features.hsm]
+kind = "gated"
+[targets.native]
+missing-features = []
+[targets.sim]
+missing-features = ["hsm"]
+[[targets.sim.expected-fail]]
+case = "a/add"
+reason = "integer add broken on the sim backend"
+tracking = "https://example.test/issues/9"
+"#;
+
+/// #48 end to end: a declared known failure aggregates green with the
+/// debt reported; the same declaration over a passing case is a
+/// validation failure that forces cleanup.
+#[test]
+fn aggregate_expected_fail_roundtrip() {
+    let sim_failing = agg_stream(
+        "sim",
+        &[
+            ("a/add", "fail", Some("1 + 1 = 3")),
+            ("a/hsm/attest", "not-applicable", Some("hsm")),
+            ("a/hsm/declined", "pass", None),
+        ],
+    );
+    let out = aggregate_with_manifest("agg-xfail", AGG_XFAIL_MANIFEST, &native_ok(), &sim_failing);
+    assert_eq!(
+        out.code, 0,
+        "stdout: {}\nstderr: {}",
+        out.stdout, out.stderr
+    );
+    assert!(
+        out.stdout
+            .contains("2 targets, 6 results, 0 failing (1 expected-fail), 0 validation error(s)"),
+        "{}",
+        out.stdout
+    );
+    assert!(
+        out.stdout.contains("## Expected failures"),
+        "{}",
+        out.stdout
+    );
+    assert!(out.stdout.contains("xfail"), "{}", out.stdout);
+
+    // The case got fixed: the stale declaration must fail the run.
+    let out = aggregate_with_manifest("agg-xpass", AGG_XFAIL_MANIFEST, &native_ok(), &sim_ok());
+    assert_eq!(
+        out.code, 1,
+        "stdout: {}\nstderr: {}",
+        out.stdout, out.stderr
+    );
+    assert!(
+        out.stderr.contains("passed") && out.stderr.contains("`a/add`"),
+        "{}",
+        out.stderr
+    );
+    assert!(out.stdout.contains("XPASS"), "{}", out.stdout);
 }
 
 // ------------------------------------------- lock (needs built wasm)

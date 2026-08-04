@@ -133,8 +133,8 @@ verify-pipeline: build
 
 # Path 5: cross-target aggregation (examples/aggregate): lock, run the
 # fixture against two declared targets, join + validate, diff the
-# matrix. Exercises the artifact-sha256 binding end to end (the
-# lockfile is regenerated from the artifact that runs).
+# matrix. The deliberate trap is declared expected-fail (#48), so the
+# pipeline aggregates green with the debt reported.
 verify-aggregate: build
     #!/usr/bin/env bash
     set -euo pipefail
@@ -152,7 +152,7 @@ verify-aggregate: build
         --manifest examples/aggregate/targets.toml \
         --results "native=$tmp/native.jsonl" --results "sim=$tmp/sim.jsonl" \
         -o "$tmp/matrix.md" > "$tmp/summary.txt" && code=0 || code=$?
-    test "$code" -eq 1  # the fixture's trap case fails on both targets
+    test "$code" -eq 0  # the deliberate trap is declared expected-fail (#48)
     diff -u expected/verify-aggregate-matrix.md "$tmp/matrix.md"
     echo "verify-aggregate: matrix matches expected/"
 

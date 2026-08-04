@@ -16,15 +16,22 @@ ct-runner target/wasm32-wasip2/release/fixture_suite.wasm \
 component-test aggregate \
   --lock /tmp/tests.lock --manifest examples/aggregate/targets.toml \
   --results native=/tmp/native.jsonl --results sim=/tmp/sim.jsonl \
-  -o matrix.md                                                 # exit 1: failures present
+  -o matrix.md              # exit 0: the trap is declared expected-fail
 ```
 
 What the aggregator checks before rendering anything: closed feature
 namespace in both directions, dead coverage (every case applicable on
 at least one target), per-target coverage against the lockfile,
-artifact-sha256 binding (envelope vs lockfile — which is why the
-walkthrough regenerates the lockfile from the artifact it runs),
-applicability drift, unterminated segments, run errors.
+applicability drift, expected-fail declarations, unterminated
+segments, run errors. (Artifact hashes are provenance, not identity —
+#44; the inventory is the binding.)
+
+The fixture's deliberate trap is declared `expected-fail` (#48) in
+`targets.toml` — tracked debt with a reason and tracking link, never a
+deleted test. The matrix renders it quiet (`xfail`, with an "Expected
+failures" section carrying the paper trail) and the run aggregates
+green. If the case ever *passes*, the stale declaration becomes a
+validation error until it is removed.
 
 `just verify-aggregate` runs exactly this and diffs `matrix.md`
 against `expected/verify-aggregate-matrix.md`.

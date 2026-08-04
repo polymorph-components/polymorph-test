@@ -35,10 +35,27 @@ pub struct Aggregate {
     pub targets: Vec<String>,
     /// target → case → result, both in canonical (sorted) order.
     pub results: BTreeMap<String, BTreeMap<String, CaseResult>>,
+    /// target → case → assessment against the target's expected-fail
+    /// declarations (#48). Only declared cases appear here.
+    pub assessments: BTreeMap<String, BTreeMap<String, Assessment>>,
     /// Validation failures.
     pub errors: Vec<String>,
     /// Tolerated oddities (unknown statuses).
     pub warnings: Vec<String>,
+}
+
+/// Host-side assessment of a reported result against a target's
+/// `expected-fail` declarations (#48). Never a wire status: the stream
+/// still carries `fail`/`pass`; this is the aggregation layer's
+/// judgment of it, made where the manifest joins the results.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Assessment {
+    /// Declared expected-fail and it did fail: tracked debt, excluded
+    /// from corpus failure.
+    ExpectedFail { reason: String, tracking: String },
+    /// Declared expected-fail but it passed: the declaration is stale
+    /// (also a validation error — the pass forces cleanup).
+    UnexpectedPass,
 }
 
 impl Aggregate {
@@ -48,12 +65,33 @@ impl Aggregate {
         self.errors.is_empty() && !self.has_failures()
     }
 
-    /// Any fail or not-reached status across all targets.
+    /// Is this result a corpus failure? `fail`/`not-reached`, except a
+    /// fail assessed expected-fail (tracked debt). The single owner of
+    /// the predicate: `has_failures`, the CLI exit path, and the
+    /// matrix Failures section all route through it.
+    pub fn result_failing(&self, target: &str, r: &CaseResult) -> bool {
+        r.status.failing()
+            && !matches!(
+                self.assessments.get(target).and_then(|m| m.get(&r.case)),
+                Some(Assessment::ExpectedFail { .. })
+            )
+    }
+
+    /// Any corpus failure across all targets.
     pub fn has_failures(&self) -> bool {
         self.results
+            .iter()
+            .flat_map(|(target, m)| m.values().map(move |r| (target.as_str(), r)))
+            .any(|(target, r)| self.result_failing(target, r))
+    }
+
+    /// Total expected-fail assessments (for summaries).
+    pub fn expected_fail_count(&self) -> usize {
+        self.assessments
             .values()
             .flat_map(|m| m.values())
-            .any(|r| r.status.failing())
+            .filter(|a| matches!(a, Assessment::ExpectedFail { .. }))
+            .count()
     }
 }
 
@@ -137,6 +175,7 @@ pub fn aggregate(
     }
 
     let mut results: BTreeMap<String, BTreeMap<String, CaseResult>> = BTreeMap::new();
+    let mut assessments: BTreeMap<String, BTreeMap<String, Assessment>> = BTreeMap::new();
     let mut seen_targets = BTreeSet::new();
     // (target, envelope artifact sha256) for the cross-target agreement
     // warning — collected during the per-target pass, judged after it.
@@ -303,6 +342,79 @@ pub fn aggregate(
             }
         }
 
+        // Expected-fail declarations (#48): known failures are tracked
+        // debt, never deleted tests. A declared case that failed is
+        // assessed expected-fail (excluded from corpus failure); one
+        // that passed is an unexpected pass — a validation error, so a
+        // fixed case forces its declaration's cleanup. Stale
+        // declarations (unknown case, or not applicable on this
+        // target) are errors, the same discipline as every other
+        // manifest cross-check. Runs after the scheduling
+        // reclassification above so unscheduled streams are judged on
+        // their normalized statuses.
+        if let (Some(missing), Some(decl)) = (missing, manifest.targets.get(target)) {
+            let mut target_assessments: BTreeMap<String, Assessment> = BTreeMap::new();
+            for xf in &decl.expected_fail {
+                let Some(tags) = tags_for(&xf.case) else {
+                    errors.push(format!(
+                        "target `{target}`: expected-fail declaration for `{}` names \
+                         no known case (not in the lockfile, not under a generated \
+                         prefix) — stale declaration?",
+                        xf.case
+                    ));
+                    continue;
+                };
+                if !tags.applies(missing) {
+                    errors.push(format!(
+                        "target `{target}`: expected-fail declaration for `{}` is \
+                         stale: the case is not applicable given missing-features \
+                         {missing:?}",
+                        xf.case
+                    ));
+                    continue;
+                }
+                match target_results.get(&xf.case).map(|r| r.status) {
+                    Some(Status::Fail) => {
+                        target_assessments.insert(
+                            xf.case.clone(),
+                            Assessment::ExpectedFail {
+                                reason: xf.reason.clone(),
+                                tracking: xf.tracking.clone(),
+                            },
+                        );
+                    }
+                    Some(Status::Pass) => {
+                        target_assessments.insert(xf.case.clone(), Assessment::UnexpectedPass);
+                        errors.push(format!(
+                            "target `{target}`: expected-fail case `{}` passed — \
+                             remove the stale declaration (reason was: {}; tracking: \
+                             {})",
+                            xf.case, xf.reason, xf.tracking
+                        ));
+                    }
+                    Some(Status::Skipped) => warnings.push(format!(
+                        "target `{target}`: expected-fail case `{}` was skipped: the \
+                         declared failure went unexercised",
+                        xf.case
+                    )),
+                    // not-reached stays a corpus failure (harness
+                    // breakage is not the declared failure); the
+                    // not-applicable shape was rejected statically
+                    // above.
+                    Some(_) => {}
+                    None => warnings.push(format!(
+                        "target `{target}`: expected-fail case `{}` did not \
+                         materialize in this run — the declared failure went \
+                         unexercised",
+                        xf.case
+                    )),
+                }
+            }
+            if !target_assessments.is_empty() {
+                assessments.insert(target.clone(), target_assessments);
+            }
+        }
+
         results.insert(target.clone(), target_results);
     }
 
@@ -339,6 +451,7 @@ pub fn aggregate(
     Aggregate {
         targets: manifest.targets.keys().cloned().collect(),
         results,
+        assessments,
         errors,
         warnings,
     }
@@ -522,6 +635,193 @@ mod tests {
             agg.warnings
                 .iter()
                 .any(|w| w.contains("`other`") && w.contains("`suite`")),
+            "{:?}",
+            agg.warnings
+        );
+    }
+
+    const XFAIL_MANIFEST: &str = r#"
+        version = "0.1"
+        [features.hsm]
+        kind = "gated"
+        [targets.native]
+        missing-features = []
+        [targets.sim]
+        missing-features = ["hsm"]
+        [[targets.sim.expected-fail]]
+        case = "suite/add"
+        reason = "integer add broken on the sim backend"
+        tracking = "https://example.test/issues/9"
+    "#;
+
+    /// #48 happy path: a declared known failure fails — tracked debt,
+    /// not a corpus failure.
+    #[test]
+    fn expected_fail_excludes_known_failure() {
+        let mut sim = sim_doc();
+        sim.results[0] = result("suite/add", Status::Fail, Some("1 + 1 = 3"));
+        let agg = aggregate(
+            &corpus_lock(),
+            &manifest(XFAIL_MANIFEST),
+            &[("native".into(), native_doc()), ("sim".into(), sim)],
+        );
+        assert!(agg.errors.is_empty(), "{:?}", agg.errors);
+        assert!(!agg.has_failures(), "{:?}", agg.results);
+        assert!(agg.ok());
+        assert_eq!(agg.expected_fail_count(), 1);
+        assert!(matches!(
+            agg.assessments["sim"]["suite/add"],
+            Assessment::ExpectedFail { .. }
+        ));
+        // The wire status is untouched: reclassification is judgment,
+        // not rewriting.
+        assert_eq!(agg.results["sim"]["suite/add"].status, Status::Fail);
+    }
+
+    /// #48 forced cleanup: the declared failure passed, so the stale
+    /// declaration is a validation error.
+    #[test]
+    fn unexpected_pass_is_error() {
+        let agg = aggregate(
+            &corpus_lock(),
+            &manifest(XFAIL_MANIFEST),
+            &[("native".into(), native_doc()), ("sim".into(), sim_doc())],
+        );
+        assert!(
+            agg.errors.iter().any(|e| e.contains("`suite/add`")
+                && e.contains("passed")
+                && e.contains("https://example.test/issues/9")),
+            "{:?}",
+            agg.errors
+        );
+        assert!(!agg.ok());
+        assert_eq!(
+            agg.assessments["sim"]["suite/add"],
+            Assessment::UnexpectedPass
+        );
+        assert_eq!(agg.expected_fail_count(), 0);
+    }
+
+    /// #48 stale declarations: unknown case, and a case not applicable
+    /// on the declaring target.
+    #[test]
+    fn stale_expected_fail_declarations_are_errors() {
+        let unknown = manifest(
+            r#"
+            version = "0.1"
+            [features.hsm]
+            kind = "gated"
+            [targets.native]
+            missing-features = []
+            [targets.sim]
+            missing-features = ["hsm"]
+            [[targets.sim.expected-fail]]
+            case = "suite/no-such-case"
+            reason = "r"
+            tracking = "t"
+        "#,
+        );
+        let agg = aggregate(
+            &corpus_lock(),
+            &unknown,
+            &[("native".into(), native_doc()), ("sim".into(), sim_doc())],
+        );
+        assert!(
+            agg.errors
+                .iter()
+                .any(|e| e.contains("suite/no-such-case") && e.contains("no known case")),
+            "{:?}",
+            agg.errors
+        );
+
+        // suite/hsm/attest requires hsm, which sim declares missing:
+        // an xfail for it on sim can never be exercised.
+        let not_applicable = manifest(
+            r#"
+            version = "0.1"
+            [features.hsm]
+            kind = "gated"
+            [targets.native]
+            missing-features = []
+            [targets.sim]
+            missing-features = ["hsm"]
+            [[targets.sim.expected-fail]]
+            case = "suite/hsm/attest"
+            reason = "r"
+            tracking = "t"
+        "#,
+        );
+        let agg = aggregate(
+            &corpus_lock(),
+            &not_applicable,
+            &[("native".into(), native_doc()), ("sim".into(), sim_doc())],
+        );
+        assert!(
+            agg.errors
+                .iter()
+                .any(|e| e.contains("suite/hsm/attest") && e.contains("not applicable")),
+            "{:?}",
+            agg.errors
+        );
+    }
+
+    /// #48 decision 2: a skipped expected-fail case neither satisfies
+    /// nor violates the declaration — warning, not error.
+    #[test]
+    fn skipped_expected_fail_warns() {
+        let mut sim = sim_doc();
+        sim.results[0] = result("suite/add", Status::Skipped, Some("no backend"));
+        let agg = aggregate(
+            &corpus_lock(),
+            &manifest(XFAIL_MANIFEST),
+            &[("native".into(), native_doc()), ("sim".into(), sim)],
+        );
+        assert!(agg.errors.is_empty(), "{:?}", agg.errors);
+        assert!(
+            agg.warnings
+                .iter()
+                .any(|w| w.contains("`suite/add`") && w.contains("unexercised")),
+            "{:?}",
+            agg.warnings
+        );
+        assert_eq!(agg.expected_fail_count(), 0);
+    }
+
+    /// #48: a declaration naming a generated leaf that never
+    /// materialized is unexercised — warning (coverage does not require
+    /// generated leaves, so nothing else would flag it).
+    #[test]
+    fn unmaterialized_expected_fail_warns() {
+        let mut lock = corpus_lock();
+        lock.generated.push(crate::lockfile::GeneratedEntry {
+            prefix: "suite/gen".into(),
+            tags: vec![],
+        });
+        let xfail_gen = manifest(
+            r#"
+            version = "0.1"
+            [features.hsm]
+            kind = "gated"
+            [targets.native]
+            missing-features = []
+            [targets.sim]
+            missing-features = ["hsm"]
+            [[targets.sim.expected-fail]]
+            case = "suite/gen/tc999"
+            reason = "r"
+            tracking = "t"
+        "#,
+        );
+        let agg = aggregate(
+            &lock,
+            &xfail_gen,
+            &[("native".into(), native_doc()), ("sim".into(), sim_doc())],
+        );
+        assert!(agg.errors.is_empty(), "{:?}", agg.errors);
+        assert!(
+            agg.warnings
+                .iter()
+                .any(|w| w.contains("suite/gen/tc999") && w.contains("did not materialize")),
             "{:?}",
             agg.warnings
         );

@@ -65,6 +65,32 @@ pub struct Target {
     /// results are validated exactly like any other target's.
     #[serde(default)]
     pub optional: bool,
+    /// Known failures on this target (#48): tracked debt, never
+    /// deleted tests. A declared case that *fails* is excluded from
+    /// corpus failure; one that *passes* is a validation error, which
+    /// forces the declaration's cleanup. Exact case names only — a
+    /// prefix-scoped xfail could silently absorb new failures.
+    #[serde(default, rename = "expected-fail")]
+    pub expected_fail: Vec<ExpectedFail>,
+}
+
+/// One expected-fail declaration:
+///
+/// ```toml
+/// [[targets.jco-browser.expected-fail]]
+/// case = "close/abnormal/code"
+/// reason = "close codes unavailable under the browser shim"
+/// tracking = "https://github.com/acme/suite/issues/17"
+/// ```
+///
+/// Both `reason` and `tracking` are required (content policy is the
+/// consumer's): an xfail without a paper trail is how known failures
+/// become permanent.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExpectedFail {
+    pub case: String,
+    pub reason: String,
+    pub tracking: String,
 }
 
 impl Manifest {
@@ -73,8 +99,10 @@ impl Manifest {
         Ok(m)
     }
 
-    /// Structural validation: version, non-empty targets table, and
-    /// every missing-features entry classified in `[features]`.
+    /// Structural validation: version, non-empty targets table, every
+    /// missing-features entry classified in `[features]`, and
+    /// well-formed expected-fail declarations (valid case-name
+    /// grammar, no duplicates per target, reason/tracking non-empty).
     pub fn validate(&self) -> anyhow::Result<()> {
         if self.version != MANIFEST_VERSION {
             bail!("unsupported manifest version {}", self.version);
@@ -89,6 +117,31 @@ impl Manifest {
                         "target `{name}`: missing-features entry `{feature}` is not \
                          classified in [features] — only declared features may be \
                          declared missing"
+                    );
+                }
+            }
+            let mut seen = std::collections::BTreeSet::new();
+            for decl in &target.expected_fail {
+                component_test_core::CaseName::parse(&decl.case).map_err(|e| {
+                    anyhow::anyhow!("target `{name}`: expected-fail case `{}`: {e}", decl.case)
+                })?;
+                if !seen.insert(decl.case.as_str()) {
+                    bail!(
+                        "target `{name}`: duplicate expected-fail declaration for `{}`",
+                        decl.case
+                    );
+                }
+                if decl.reason.trim().is_empty() {
+                    bail!(
+                        "target `{name}`: expected-fail `{}` has an empty reason",
+                        decl.case
+                    );
+                }
+                if decl.tracking.trim().is_empty() {
+                    bail!(
+                        "target `{name}`: expected-fail `{}` has an empty tracking \
+                         reference",
+                        decl.case
                     );
                 }
             }
@@ -185,5 +238,86 @@ mod tests {
         )
         .unwrap();
         m.validate().unwrap();
+    }
+
+    #[test]
+    fn expected_fail_declarations() {
+        let m = Manifest::from_toml(
+            r#"
+            version = "0.1"
+            [targets.browser]
+            missing-features = []
+            [[targets.browser.expected-fail]]
+            case = "close/abnormal/code"
+            reason = "close codes unavailable under the shim"
+            tracking = "https://example.test/issues/17"
+        "#,
+        )
+        .unwrap();
+        m.validate().unwrap();
+        let decls = &m.targets["browser"].expected_fail;
+        assert_eq!(decls.len(), 1);
+        assert_eq!(decls[0].case, "close/abnormal/code");
+
+        // Missing required fields are parse errors.
+        assert!(Manifest::from_toml(
+            r#"
+            version = "0.1"
+            [targets.a]
+            [[targets.a.expected-fail]]
+            case = "x/y"
+            reason = "no tracking"
+        "#,
+        )
+        .is_err());
+
+        // Grammar, duplicates, and empty fields are validation errors.
+        let bad_grammar = Manifest::from_toml(
+            r#"
+            version = "0.1"
+            [targets.a]
+            [[targets.a.expected-fail]]
+            case = "Bad Name"
+            reason = "r"
+            tracking = "t"
+        "#,
+        )
+        .unwrap();
+        assert!(bad_grammar.validate().is_err());
+
+        let dupe = Manifest::from_toml(
+            r#"
+            version = "0.1"
+            [targets.a]
+            [[targets.a.expected-fail]]
+            case = "x/y"
+            reason = "r"
+            tracking = "t"
+            [[targets.a.expected-fail]]
+            case = "x/y"
+            reason = "r2"
+            tracking = "t2"
+        "#,
+        )
+        .unwrap();
+        let err = dupe.validate().unwrap_err().to_string();
+        assert!(err.contains("duplicate expected-fail"), "{err}");
+
+        let empty_reason = Manifest::from_toml(
+            r#"
+            version = "0.1"
+            [targets.a]
+            [[targets.a.expected-fail]]
+            case = "x/y"
+            reason = "  "
+            tracking = "t"
+        "#,
+        )
+        .unwrap();
+        assert!(empty_reason
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("empty reason"));
     }
 }
