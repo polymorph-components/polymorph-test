@@ -5,14 +5,18 @@
 //!       Execution-free inventory from the suite's tags section.
 //!   fold [tests.lock] < results.jsonl
 //!       Fold a JSONL results stream into the document form + summary.
+//!   aggregate --lock tests.lock --manifest targets.toml
+//!             [--results target=path.jsonl]... [-o matrix.md]
+//!       Cross-target validation + markdown matrix (#30).
 
 use std::io::Read;
 
 use anyhow::{bail, Context as _};
 use component_test_formats::{
-    inventory,
+    aggregate, inventory,
     lockfile::{Lockfile, SuiteRef},
-    results,
+    manifest::Manifest,
+    matrix, results,
 };
 use sha2::Digest;
 
@@ -21,11 +25,16 @@ fn main() -> anyhow::Result<()> {
     match args.first().map(|s| s.as_str()) {
         Some("lock") => lock(&args[1..]),
         Some("fold") => fold(&args[1..]),
+        Some("aggregate") => aggregate_cmd(&args[1..]),
         _ => {
             eprintln!(
                 "usage: component-test lock <suite.wasm> [-o tests.lock] [--check tests.lock]"
             );
             eprintln!("       component-test fold [tests.lock] < results.jsonl");
+            eprintln!(
+                "       component-test aggregate --lock tests.lock --manifest targets.toml \
+                 [--results target=path.jsonl]... [-o matrix.md]"
+            );
             std::process::exit(2);
         }
     }
@@ -158,6 +167,90 @@ fn fold(args: &[String]) -> anyhow::Result<()> {
         || !doc.run_errors.is_empty()
         || !doc.terminated;
     std::process::exit(if failed { 1 } else { 0 });
+}
+
+fn aggregate_cmd(args: &[String]) -> anyhow::Result<()> {
+    let mut lock_path = None;
+    let mut manifest_path = None;
+    let mut result_args: Vec<(String, String)> = Vec::new();
+    let mut out_path = None;
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--lock" => lock_path = Some(it.next().context("--lock needs a path")?.clone()),
+            "--manifest" => {
+                manifest_path = Some(it.next().context("--manifest needs a path")?.clone())
+            }
+            "--results" => {
+                let spec = it.next().context("--results needs target=path.jsonl")?;
+                let (target, path) = spec
+                    .split_once('=')
+                    .context("--results argument must be target=path.jsonl")?;
+                result_args.push((target.to_string(), path.to_string()));
+            }
+            "-o" => out_path = Some(it.next().context("-o needs a path")?.clone()),
+            other => bail!("unexpected argument `{other}`"),
+        }
+    }
+    let lock_path = lock_path.context("missing --lock")?;
+    let manifest_path = manifest_path.context("missing --manifest")?;
+
+    let lf = Lockfile::from_toml(
+        &std::fs::read_to_string(&lock_path).with_context(|| format!("reading {lock_path}"))?,
+    )?;
+    let manifest = Manifest::from_toml(
+        &std::fs::read_to_string(&manifest_path)
+            .with_context(|| format!("reading {manifest_path}"))?,
+    )?;
+
+    let selected: Vec<String> = lf.case.iter().map(|c| c.name.as_str().to_string()).collect();
+    let mut docs = Vec::new();
+    for (target, path) in &result_args {
+        let stream =
+            std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
+        let doc = results::fold_jsonl(&stream, &selected)
+            .with_context(|| format!("folding results for target `{target}` ({path})"))?;
+        docs.push((target.clone(), doc));
+    }
+
+    let agg = aggregate::aggregate(&lf, &manifest, &docs);
+    let md = matrix::render(&agg);
+    match &out_path {
+        Some(path) => {
+            std::fs::write(path, &md).with_context(|| format!("writing {path}"))?;
+        }
+        None => print!("{md}"),
+    }
+
+    for w in &agg.warnings {
+        eprintln!("warning: {w}");
+    }
+    for e in &agg.errors {
+        eprintln!("error: {e}");
+    }
+    let mut failures = 0usize;
+    let mut total = 0usize;
+    for results in agg.results.values() {
+        for r in results.values() {
+            total += 1;
+            if matches!(
+                r.status,
+                results::Status::Fail | results::Status::NotReached
+            ) {
+                failures += 1;
+            }
+        }
+    }
+    println!(
+        "{} targets, {total} results, {failures} failing, {} validation error(s){}",
+        agg.targets.len(),
+        agg.errors.len(),
+        out_path
+            .as_deref()
+            .map(|p| format!("; wrote {p}"))
+            .unwrap_or_default()
+    );
+    std::process::exit(if agg.ok() { 0 } else { 1 });
 }
 
 fn hex(bytes: &[u8]) -> String {
