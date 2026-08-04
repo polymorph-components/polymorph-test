@@ -24,6 +24,8 @@ fn run() -> Result<ExitCode> {
     let mut cases_per_instance: usize = 1;
     let mut jobs: usize = 1;
     let mut target: String = "wasmtime/host".into();
+    let mut only: Option<String> = None;
+    let mut enumerate = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -33,6 +35,13 @@ fn run() -> Result<ExitCode> {
                     .ok_or_else(|| anyhow::anyhow!("--missing needs a list"))?;
                 missing.extend(list.split(',').filter(|s| !s.is_empty()).map(String::from));
             }
+            "--only" => {
+                only = Some(
+                    args.next()
+                        .ok_or_else(|| anyhow::anyhow!("--only needs a substring"))?,
+                );
+            }
+            "--enumerate" => enumerate = true,
             "--target" => {
                 target = args
                     .next()
@@ -64,13 +73,21 @@ fn run() -> Result<ExitCode> {
         .unwrap_or_else(|| "suite".into());
 
     let runner = Runner::new(&suite)?;
-    let summary = wasmtime_wasi::runtime::in_tokio(runner.run_suite_full(
+    if enumerate {
+        let names = wasmtime_wasi::runtime::in_tokio(runner.enumerate())?;
+        for name in names {
+            println!("{name}");
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    let summary = wasmtime_wasi::runtime::in_tokio(runner.run_suite_opts(
         &suite_name,
         &target,
         mode,
         &missing,
         cases_per_instance,
         jobs,
+        only.as_deref(),
     ))?;
 
     Ok(if summary.failed > 0 {

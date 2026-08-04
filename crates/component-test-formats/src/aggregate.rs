@@ -87,6 +87,39 @@ pub fn aggregate(
             ));
         }
     }
+    // Every case must be applicable on at least one declared target:
+    // otherwise it is dead coverage (e.g. a decline case whose feature
+    // no target lacks) that no run will ever exercise.
+    {
+        let target_missing: Vec<&[String]> = manifest
+            .targets
+            .values()
+            .map(|t| t.missing_features.as_slice())
+            .collect();
+        let applicable_somewhere =
+            |tags: &component_test_core::Tags| target_missing.iter().any(|m| tags.applies(m));
+        for entry in &lockfile.case {
+            let tags =
+                component_test_core::Tags::new(entry.tags.clone()).expect("lockfile validated");
+            if !applicable_somewhere(&tags) {
+                errors.push(format!(
+                    "case `{}` is applicable on no declared target (dead coverage)",
+                    entry.name
+                ));
+            }
+        }
+        for gen in &lockfile.generated {
+            let tags =
+                component_test_core::Tags::new(gen.tags.clone()).expect("lockfile validated");
+            if !applicable_somewhere(&tags) {
+                errors.push(format!(
+                    "generated row `{}/*` is applicable on no declared target (dead coverage)",
+                    gen.prefix
+                ));
+            }
+        }
+    }
+
     for (feature, decl) in &manifest.features {
         // Structural features gate suites at composition time and never
         // appear as case tags (README: "structural features gate
@@ -517,5 +550,71 @@ mod tests {
             ))
             .unwrap()
         }
+    }
+}
+
+#[cfg(test)]
+mod dead_coverage_tests {
+    use super::*;
+    use crate::lockfile::{CaseEntry, Lockfile, SuiteRef};
+    use crate::manifest::Manifest;
+    use component_test_core::{CaseName, Tag};
+
+    #[test]
+    fn case_applicable_nowhere_is_error() {
+        let lock = Lockfile::new(
+            SuiteRef {
+                name: "s".into(),
+                artifact_sha256: None,
+            },
+            vec![
+                CaseEntry {
+                    name: CaseName::parse("a/pos").unwrap(),
+                    tags: vec![Tag::parse("hsm").unwrap()],
+                },
+                CaseEntry {
+                    name: CaseName::parse("a/neg").unwrap(),
+                    tags: vec![Tag::parse("!hsm").unwrap()],
+                },
+            ],
+        );
+        // Only a full-support target: the decline case runs nowhere.
+        let manifest: Manifest = toml::from_str(
+            r#"
+            version = "0.1"
+            [features.hsm]
+            kind = "gated"
+            [targets.full]
+            missing-features = []
+            "#,
+        )
+        .unwrap();
+        let agg = aggregate(&lock, &manifest, Default::default());
+        assert!(
+            agg.errors
+                .iter()
+                .any(|e| e.contains("a/neg") && e.contains("no declared target")),
+            "{:?}",
+            agg.errors
+        );
+        // Adding a target lacking hsm clears it.
+        let manifest: Manifest = toml::from_str(
+            r#"
+            version = "0.1"
+            [features.hsm]
+            kind = "gated"
+            [targets.full]
+            missing-features = []
+            [targets.lacking]
+            missing-features = ["hsm"]
+            "#,
+        )
+        .unwrap();
+        let agg = aggregate(&lock, &manifest, Default::default());
+        assert!(
+            !agg.errors.iter().any(|e| e.contains("no declared target")),
+            "{:?}",
+            agg.errors
+        );
     }
 }

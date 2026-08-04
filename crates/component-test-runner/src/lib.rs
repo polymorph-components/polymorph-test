@@ -347,6 +347,32 @@ impl<D: RunnerView + 'static> Runner<D> {
         cases_per_instance: usize,
         jobs: usize,
     ) -> Result<Summary> {
+        self.run_suite_opts(
+            suite_name,
+            target,
+            mode,
+            missing_features,
+            cases_per_instance,
+            jobs,
+            None,
+        )
+        .await
+    }
+
+    /// `only`: run only cases whose name contains the substring (a
+    /// dev-loop filter; filtered cases are omitted from output, so
+    /// filtered runs will not aggregate cleanly — by design).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_suite_opts(
+        &self,
+        suite_name: &str,
+        target: &str,
+        mode: OutputMode,
+        missing_features: &[String],
+        cases_per_instance: usize,
+        jobs: usize,
+        only: Option<&str>,
+    ) -> Result<Summary> {
         let human = matches!(mode, OutputMode::Human);
 
         // Static inventory (tags) from the suite artifact, if present.
@@ -445,6 +471,7 @@ impl<D: RunnerView + 'static> Runner<D> {
         let plan: Vec<(usize, &String, Action)> = names
             .iter()
             .enumerate()
+            .filter(|(_, name)| only.is_none_or(|o| name.contains(o)))
             .map(|(index, name)| {
                 let action = match (&inventory, tags_of(name)) {
                     (Some(_), Some(tags)) if !tags.applies(missing_features) => {
