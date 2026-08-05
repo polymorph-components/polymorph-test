@@ -44,8 +44,6 @@ jobs:
     timeout-minutes: 25
     permissions:
       contents: read
-      # The JUnit demo's reporter publishes a check run.
-      checks: write
     steps:
       - uses: actions/checkout@v5
 
@@ -78,11 +76,14 @@ jobs:
         run: just emit-demo
 
       - name: Render the test report into the job summary
+        # annotate_only: the fixture pipeline *deliberately* fails (the
+        # trap case), so a check run would put a red X on every green
+        # commit; the job summary is the demo surface.
         uses: mikepenz/action-junit-report@v5
         with:
           report_paths: target/junit-demo.xml
-          check_name: conformance demo (fixture pipeline, via emit junit)
           detailed_summary: true
           include_passed: true
           fail_on_failure: false
           require_tests: true
+          annotate_only: true
