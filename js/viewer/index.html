@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>component-test viewer</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="viewer.css">
+<body>
+<header>
+  <h1>component-test</h1>
+  <nav>
+    <button id="tab-results" class="tab active">Results</button>
+    <button id="tab-live" class="tab">Live run</button>
+  </nav>
+</header>
+
+<main id="pane-results">
+  <section class="inputs">
+    <div class="input-group">
+      <label>Lockfile (tests.lock)
+        <input type="file" id="in-lock" accept=".lock,.toml">
+      </label>
+      <span class="loaded" id="lock-loaded"></span>
+    </div>
+    <div class="input-group">
+      <label>Target manifest (targets.toml)
+        <input type="file" id="in-manifest" accept=".toml">
+      </label>
+      <span class="loaded" id="manifest-loaded"></span>
+    </div>
+    <div class="input-group">
+      <label>Results streams (.jsonl, one per target)
+        <input type="file" id="in-results" accept=".jsonl,.json" multiple>
+      </label>
+      <span class="loaded" id="results-loaded"></span>
+    </div>
+    <div class="input-group buttons">
+      <button id="btn-aggregate" disabled>Aggregate</button>
+      <button id="btn-demo" class="secondary" title="Load the fixture-suite walkthrough from this repository (needs the page served from the repo root)">Load demo</button>
+    </div>
+  </section>
+  <section id="verdict" hidden></section>
+  <section id="findings" hidden></section>
+  <section id="matrix" hidden></section>
+  <aside id="detail" hidden></aside>
+</main>
+
+<main id="pane-live" hidden>
+  <section class="inputs">
+    <div class="input-group">
+      <label>Suite directory (URL of a jco transpile)
+        <input type="text" id="live-url" value="./suite/" spellcheck="false">
+      </label>
+    </div>
+    <div class="input-group">
+      <label>Suite name
+        <input type="text" id="live-name" value="fixture-suite" list="known-suites" spellcheck="false">
+        <datalist id="known-suites">
+          <option value="sample-suite"><option value="fixture-suite">
+        </datalist>
+      </label>
+    </div>
+    <div class="input-group">
+      <label>Missing features (comma-separated)
+        <input type="text" id="live-missing" placeholder="hsm" spellcheck="false">
+      </label>
+    </div>
+    <div class="input-group narrow">
+      <label>Workers
+        <input type="number" id="live-workers" min="1" max="8" value="4">
+      </label>
+    </div>
+    <div class="input-group narrow">
+      <label>Target label
+        <input type="text" id="live-target" value="native" spellcheck="false">
+      </label>
+    </div>
+    <div class="input-group buttons">
+      <button id="btn-run">Run</button>
+      <button id="btn-download" class="secondary" disabled>Download results.jsonl</button>
+      <button id="btn-adopt" class="secondary" disabled title="Feed this run into the Results tab as one target's stream">Send to Results</button>
+    </div>
+  </section>
+  <section id="live-verdict" hidden></section>
+  <section id="live-table"></section>
+</main>
+
+<footer>
+  <a href="https://github.com/lann/component-test">lann:component-test</a> —
+  aggregation runs the gate's own Rust code compiled to wasm; the live
+  harness is the shared runner core. Live runs need JSPI (Chrome 137+).
+</footer>
+<script type="module" src="app.mjs"></script>
+</body>
+</html>

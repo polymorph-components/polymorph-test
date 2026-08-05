@@ -24,3 +24,33 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
         .map(|b| format!("{b:02x}"))
         .collect()
 }
+
+/// The fold selection: lockfile case names plus every case name
+/// observed in the stream. Generated-row leaves exist only at run
+/// time, so they are knowable solely from the stream — without the
+/// union, an all-generated suite trips the "empty selection is a run
+/// error" rule spuriously. Reported names are by definition selected;
+/// coverage (exact-case completeness, prefix membership, grammar) is
+/// enforced separately by `check_coverage`.
+pub fn selected_names(lockfile: Option<&lockfile::Lockfile>, stream: &str) -> Vec<String> {
+    let mut selected: Vec<String> = lockfile
+        .map(|lf| {
+            lf.case
+                .iter()
+                .map(|c| c.name.as_str().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut seen: std::collections::BTreeSet<String> = selected.iter().cloned().collect();
+    for name in stream
+        .lines()
+        .skip(1) // envelope
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter_map(|v| v.get("case").and_then(|c| c.as_str()).map(String::from))
+    {
+        if seen.insert(name.clone()) {
+            selected.push(name);
+        }
+    }
+    selected
+}

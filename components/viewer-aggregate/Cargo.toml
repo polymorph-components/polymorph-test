@@ -1,0 +1,13 @@
+[package]
+name = "viewer-aggregate"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+component-test-formats = { workspace = true }
+serde_json = "1"
+wit-bindgen = { workspace = true }
+anyhow = "1"

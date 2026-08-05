@@ -7,3 +7,7 @@ node_modules/
 # tooling populates and reuses this; e.g. component-webcrypto's
 # conformance-ct::_ct-tools)
 /bin/
+
+# Viewer build products (transpiles of the wasm engines/suites)
+js/viewer/generated/
+js/viewer/suite/

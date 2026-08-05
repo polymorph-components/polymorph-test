@@ -1,0 +1,29 @@
+package lann:component-test-viewer@0.1.0;
+
+/// The viewer's aggregation engine: the *same* Rust join/validation
+/// code the CLI gate runs (`component-test aggregate`), compiled to a
+/// component so the results viewer page can never drift greener than
+/// the gate. Pure compute: strings in, one JSON document out.
+world viewer-aggregate {
+    /// Aggregate one lockfile + manifest + per-target results-JSONL
+    /// streams. Returns a JSON document:
+    ///
+    /// ```json
+    /// {
+    ///   "targets": ["native", ...],           // manifest order
+    ///   "results": { target: { case: { "status": ..., "detail": ...,
+    ///     "diagnostics": [...], "failing": bool, ... } } },
+    ///   "assessments": { target: { case:
+    ///     { "kind": "expected-fail", "reason": ..., "tracking": ... }
+    ///     | { "kind": "unexpected-pass" } } },
+    ///   "errors": [...], "warnings": [...],
+    ///   "summary": { "targets": n, "results": n, "failing": n,
+    ///                "expected-fail": n, "ok": bool }
+    /// }
+    /// ```
+    ///
+    /// Errors are parse failures of the inputs themselves; validation
+    /// findings come back *inside* the document as `errors`/`warnings`,
+    /// exactly as the CLI reports them.
+    export run: func(lock: string, manifest: string, results: list<tuple<string, string>>) -> result<string, string>;
+}

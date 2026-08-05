@@ -62,6 +62,10 @@ components/           guest components (build with --target wasm32-wasip2)
   zero-gen-fixture         broken by design: zero-row decline generator
   hang-fixture             broken by design: CPU spin + async wedge (#45)
 js/runner-node/       Node runner via jco (runner-is-provider topology)
+js/viewer/            results viewer + live browser harness (#46/#5): the
+                      matrix page (aggregation = the gate's Rust compiled
+                      to wasm) and the shared browser-safe runner core
+                      (harness.mjs); gated by `just verify-viewer`
 examples/compose/     wac composition walkthrough (bundle-then-plug)
 expected/             golden outputs diffed by the verify recipes
 docs/findings.md      toolchain findings log

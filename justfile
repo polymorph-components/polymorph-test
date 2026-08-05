@@ -9,7 +9,7 @@ _default:
     @just --list --unsorted
 
 # Everything: host tests, component builds, all four verification paths.
-all: build test test-wasm lock-check verify-embed verify-compose verify-node verify-pipeline verify-aggregate
+all: build test test-wasm lock-check verify-embed verify-compose verify-node verify-pipeline verify-aggregate verify-viewer
 
 # CI's native job: formatting, clippy, host tests, WIT validation.
 host-checks: fmt-check lint test wit-check
@@ -155,6 +155,43 @@ verify-aggregate: build
     test "$code" -eq 0  # the deliberate trap is declared expected-fail (#48)
     diff -u expected/verify-aggregate-matrix.md "$tmp/matrix.md"
     echo "verify-aggregate: matrix matches expected/"
+
+# --- viewer ------------------------------------------------------------
+
+# Build the viewer's engines: the viewer-aggregate component (the gate's
+# aggregation compiled to wasm, transpiled sync — no JSPI needed) and
+# the demo suite transpiles (JSPI: the contract's run is async).
+viewer-build: build
+    cargo build --release --target wasm32-wasip2 -p viewer-aggregate
+    cd js/viewer && npm install --silent && npm run --silent transpile \
+        && npm run --silent transpile:sample && npm run --silent transpile:fixture
+
+# The viewer's drift gate: both engines under Node. The wasm aggregate
+# must reproduce the CLI gate's verdicts over the fixture pipeline, and
+# the shared harness must run the transpiled suites to the documented
+# verdicts (including striping partition equality). The page itself is
+# thin glue over these two engines plus worker plumbing.
+verify-viewer: viewer-build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ct() { cargo run -q -p component-test-runner --bin ct-runner -- "$@"; }
+    cli() { cargo run -q -p component-test-cli -- "$@"; }
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    cli lock {{release_dir}}/fixture_suite.wasm -o "$tmp/tests.lock" > /dev/null
+    ct {{release_dir}}/fixture_suite.wasm --jsonl --target native \
+        > "$tmp/native.jsonl" && code=0 || code=$?
+    test "$code" -eq 1
+    ct {{release_dir}}/fixture_suite.wasm --jsonl --target sim --missing hsm \
+        > "$tmp/sim.jsonl" && code=0 || code=$?
+    test "$code" -eq 1
+    node --experimental-wasm-jspi js/viewer/selftest.mjs \
+        "$tmp/tests.lock" examples/aggregate/targets.toml \
+        "$tmp/native.jsonl" "$tmp/sim.jsonl"
+
+# Serve the viewer over the repository root (demo fixtures + transpiled
+# suites resolve by relative path): http://127.0.0.1:8123/
+viewer-serve: viewer-build
+    node js/viewer/serve.mjs
 
 # --- lockfiles ---------------------------------------------------------
 
