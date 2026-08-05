@@ -78,6 +78,7 @@ pub fn parse_tags_records(bytes: &[u8]) -> anyhow::Result<Inventory> {
             inv.generated.push(GeneratedEntry {
                 prefix: prefix.to_string(),
                 tags,
+                cases: Vec::new(),
             });
         } else {
             let name = CaseName::parse(name)
