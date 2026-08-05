@@ -1,6 +1,5 @@
 target/
 *.wasm
-Cargo.lock
 node_modules/
 
 # Prebuilt CLI/runner binaries for downstream consumers (their build
