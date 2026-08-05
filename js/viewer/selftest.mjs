@@ -111,6 +111,70 @@ if (JSON.stringify(merged) !== JSON.stringify(fixture.counts)) {
   fail(`sharded counts diverge: ${JSON.stringify(merged)} vs ${JSON.stringify(fixture.counts)}`);
 }
 
+// --- 3. Gating-adapter options (#50): freshCases + caseTimeoutMs ----
+// Synthetic cases (the loop only needs name()/run()): a hanging case
+// must produce the limit-exceeded row and not stall the loop, every
+// execution must re-enumerate through the factory, and a case
+// vanishing on re-enumeration must throw (drift), not fail.
+{
+  const mkCase = (name, run) => ({ name: () => name, run });
+  const template = [
+    mkCase("synthetic/pass", async () => {}),
+    mkCase("synthetic/hang", () => new Promise(() => {})),
+    mkCase("synthetic/fail", async () => {
+      throw { payload: { tag: "failed", val: "boom" } };
+    }),
+  ];
+  let enumerations = 0;
+  const events = [];
+  const counts = await runCases({
+    cases: template,
+    Context,
+    tagsOf: () => [],
+    missing: [],
+    emit: (event) => events.push(event),
+    caseTimeoutMs: 100,
+    freshCases: async () => {
+      enumerations++;
+      return template;
+    },
+  });
+  if (counts.passed !== 1 || counts.failed !== 2 || counts.total !== 3) {
+    fail(`synthetic counts: ${JSON.stringify(counts)}`);
+  }
+  if (enumerations !== 3) {
+    fail(`freshCases enumerated ${enumerations} times, want one per case`);
+  }
+  const hang = events.find((e) => e.case === "synthetic/hang");
+  if (
+    hang?.status !== "fail" ||
+    hang?.provenance?.["limit-exceeded"] !== "case-timeout" ||
+    hang?.["diagnostics-complete"] !== false
+  ) {
+    fail(`hang row: ${JSON.stringify(hang)}`);
+  }
+  const failed = events.find((e) => e.case === "synthetic/fail");
+  if (failed?.provenance !== "returned" || failed?.detail !== "boom") {
+    fail(`payload mapping under the race: ${JSON.stringify(failed)}`);
+  }
+  let vanished = false;
+  try {
+    await runCases({
+      cases: [mkCase("synthetic/pass", async () => {})],
+      Context,
+      tagsOf: () => [],
+      missing: [],
+      emit: () => {},
+      freshCases: async () => [],
+    });
+  } catch {
+    vanished = true;
+  }
+  if (!vanished) {
+    fail("vanished case on re-enumeration did not throw");
+  }
+}
+
 console.log(
   `viewer selftest ok: aggregate ${JSON.stringify(doc.summary)}; ` +
     `sample ${JSON.stringify(sample.counts)}; fixture ${JSON.stringify(fixture.counts)}`,

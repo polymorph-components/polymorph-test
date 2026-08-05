@@ -106,6 +106,23 @@ export function envelope(target, suite) {
  * suite-order index alongside the event so a sharded consumer can
  * restore suite order.
  *
+ * The gating-adapter options (#50), both opt-in:
+ *
+ * `freshCases` gives every case a fresh instance: census and striping
+ * still come from `cases`, but each execution re-enumerates from the
+ * factory and runs the matching case (a vanished case throws — drift,
+ * unsound, not a failing case). For instantiation-mode transpiles this
+ * is the wasmtime runner's instance-per-case granularity; module-mode
+ * transpiles are singletons and cannot use it.
+ *
+ * `caseTimeoutMs` is the per-case wall bound (the runner's
+ * `--case-timeout`): on expiry the case fails with
+ * `{"limit-exceeded":"case-timeout"}` provenance and the loop moves
+ * on. JSPI attempts cannot be cancelled — the abandoned attempt keeps
+ * running until its instance is dropped, so pair this with
+ * `freshCases` (a timed-out shared instance may be wedged
+ * mid-suspension, poisoning every later case).
+ *
  * @param {object} options
  * @param {Array} options.cases  `tests.all()` from the transpiled suite.
  * @param {new (onDiagnostic: (msg: string) => void) => object} options.Context
@@ -114,9 +131,21 @@ export function envelope(target, suite) {
  * @param {string} [options.only]  Substring filter (skips emit entirely).
  * @param {(event: object, index: number) => void} options.emit
  * @param {{ index: number, count: number }} [options.shard]
+ * @param {() => Promise<Array>} [options.freshCases]
+ * @param {number} [options.caseTimeoutMs]
  * @returns {Promise<{passed, failed, skipped, na, total}>}
  */
-export async function runCases({ cases, Context, tagsOf, missing, only, emit, shard }) {
+export async function runCases({
+  cases,
+  Context,
+  tagsOf,
+  missing,
+  only,
+  emit,
+  shard,
+  freshCases,
+  caseTimeoutMs,
+}) {
   const { index: shardIndex, count: shardCount } = shard ?? { index: 0, count: 1 };
   let passed = 0, failed = 0, skipped = 0, na = 0, total = 0;
   for (const [caseIndex, testCase] of cases.entries()) {
@@ -136,13 +165,44 @@ export async function runCases({ cases, Context, tagsOf, missing, only, emit, sh
       emit({ case: name, status: "not-applicable", detail: excluding ?? "" }, caseIndex);
       continue;
     }
+    let executed = testCase;
+    if (freshCases) {
+      const fresh = await freshCases();
+      executed = fresh.find((c) => String(c.name()) === name);
+      if (!executed) {
+        throw new Error(`case ${name} vanished on re-enumeration`);
+      }
+    }
     const diags = [];
     const ctx = new Context((msg) => diags.push(msg));
     let event;
     try {
-      await testCase.run(ctx);
-      passed++;
-      event = { case: name, status: "pass", provenance: "returned" };
+      const attempt = executed.run(ctx);
+      let timedOut = false;
+      if (caseTimeoutMs) {
+        let timer;
+        timedOut = await Promise.race([
+          attempt.then(() => false),
+          new Promise((resolve) => {
+            timer = setTimeout(() => resolve(true), caseTimeoutMs);
+          }),
+        ]).finally(() => clearTimeout(timer));
+      } else {
+        await attempt;
+      }
+      if (timedOut) {
+        failed++;
+        event = {
+          case: name,
+          status: "fail",
+          provenance: { "limit-exceeded": "case-timeout" },
+          detail: `case timeout exceeded (${caseTimeoutMs / 1000}s)`,
+          "diagnostics-complete": false,
+        };
+      } else {
+        passed++;
+        event = { case: name, status: "pass", provenance: "returned" };
+      }
     } catch (e) {
       const payload = e?.payload ?? e;
       if (payload?.tag === "failed") {
