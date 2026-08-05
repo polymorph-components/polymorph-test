@@ -45,7 +45,9 @@ pub struct TestContext(bindings::polymorph::component_test::test_context::Contex
 
 impl TestContext {
     #[doc(hidden)]
-    pub fn from_raw(raw: &bindings::polymorph::component_test::test_context::Context) -> &TestContext {
+    pub fn from_raw(
+        raw: &bindings::polymorph::component_test::test_context::Context,
+    ) -> &TestContext {
         // Sound: repr(transparent) single-field wrapper.
         unsafe {
             &*(raw as *const bindings::polymorph::component_test::test_context::Context
