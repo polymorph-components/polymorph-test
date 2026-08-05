@@ -459,17 +459,19 @@ pub fn aggregate(
         }
     }
 
-    // Cross-target generated-leaf agreement: `[[generated]]` lockfile
-    // entries pin prefixes, not leaves, so per-target coverage imposes
-    // no membership on generated rows (#49). But every target in one
+    // Cross-target generated-leaf agreement: an enumeration-free
+    // `[[generated]]` lockfile entry pins its prefix, not leaves, so
+    // per-target coverage imposes no membership on such rows (#49;
+    // rows generated with `lock --leaves` get exact per-target
+    // coverage from `check_coverage` instead). But every target in one
     // aggregation ran the same suite artifact, whose enumeration is
     // deterministic, and scheduling emits not-applicable rows rather
     // than omitting cases — so the generated leaf *sets* must agree
     // across targets. A target missing leaves the others report has
     // silently shed rows (a filtered/truncated stream, or a runner
-    // that omits rather than declines). This cannot catch a uniform
-    // regression (every target losing the same rows); that bound needs
-    // leaf pinning in the lockfile (#49).
+    // that omits rather than declines). For enumeration-free rows this
+    // cannot catch a uniform regression (every target losing the same
+    // rows); that bound is exactly what `--leaves` pinning adds.
     {
         let union: BTreeSet<&str> = generated_leaves
             .iter()
@@ -847,6 +849,7 @@ mod tests {
         lock.generated.push(crate::lockfile::GeneratedEntry {
             prefix: "suite/gen".into(),
             tags: vec![],
+            cases: vec![],
         });
         let xfail_gen = manifest(
             r#"
@@ -889,6 +892,7 @@ mod tests {
         lock.generated.push(crate::lockfile::GeneratedEntry {
             prefix: "suite/gen".into(),
             tags: vec![],
+            cases: vec![],
         });
         let full = |target: &str| {
             let mut results = match target {

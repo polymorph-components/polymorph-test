@@ -1,8 +1,10 @@
 //! `component-test`: tooling entry point.
 //!
 //! Subcommands (v0):
-//!   lock <suite.wasm> [-o tests.lock] [--check existing.lock]
+//!   lock <suite.wasm> [-o tests.lock] [--check existing.lock] [--leaves names.txt]
 //!       Execution-free inventory from the suite's tags section.
+//!       `--leaves` (a runner's `--enumerate` output) additionally pins
+//!       each generated row's leaves, making coverage exact for them.
 //!   fold [tests.lock] < results.jsonl
 //!       Fold a JSONL results stream into the document form + summary.
 //!   aggregate --lock tests.lock --manifest targets.toml
@@ -20,7 +22,7 @@ use component_test_formats::{
 };
 
 fn usage() -> String {
-    "usage: component-test lock <suite.wasm> [-o tests.lock] [--check tests.lock]\n       \
+    "usage: component-test lock <suite.wasm> [-o tests.lock] [--check tests.lock] [--leaves names.txt]\n       \
      component-test fold [tests.lock] < results.jsonl\n       \
      component-test aggregate --lock tests.lock --manifest targets.toml \
      [--results target=path.jsonl]... [-o matrix.md]"
@@ -52,11 +54,13 @@ fn lock(args: &[String]) -> anyhow::Result<()> {
     let mut suite_path = None;
     let mut out_path = None;
     let mut check_path = None;
+    let mut leaves_path = None;
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "-o" => out_path = Some(it.next().context("-o needs a path")?.clone()),
             "--check" => check_path = Some(it.next().context("--check needs a path")?.clone()),
+            "--leaves" => leaves_path = Some(it.next().context("--leaves needs a path")?.clone()),
             "-h" | "--help" => {
                 println!("{}", usage());
                 return Ok(());
@@ -79,7 +83,7 @@ fn lock(args: &[String]) -> anyhow::Result<()> {
         .and_then(|s| s.to_str())
         .unwrap_or("suite")
         .to_string();
-    let lf = Lockfile::with_generated(
+    let mut lf = Lockfile::with_generated(
         SuiteRef {
             name,
             artifact_sha256: Some(artifact_sha256),
@@ -87,6 +91,44 @@ fn lock(args: &[String]) -> anyhow::Result<()> {
         inv.cases,
         inv.generated,
     );
+    // An enumeration input (a runner's `--enumerate` output: one full
+    // case name per line) pins each generated row's leaves. Exact
+    // static cases pass through; a name matching neither is inventory
+    // drift, as is a generated row the enumeration never touched.
+    if let Some(path) = &leaves_path {
+        let text = std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
+        let static_names: std::collections::BTreeSet<std::borrow::Cow<'_, str>> =
+            lf.case.iter().map(|c| c.name.as_str()).collect();
+        let mut assigned: Vec<Vec<String>> = vec![Vec::new(); lf.generated.len()];
+        for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+            if static_names.contains(&std::borrow::Cow::Borrowed(line)) {
+                continue;
+            }
+            let row = lf
+                .generated
+                .iter()
+                .enumerate()
+                .filter(|(_, g)| component_test_core::name::is_under(line, &g.prefix))
+                .max_by_key(|(_, g)| g.prefix.len());
+            match row {
+                Some((i, g)) => assigned[i].push(line[g.prefix.len() + 1..].to_string()),
+                None => bail!(
+                    "leaves entry `{line}` matches no static case or generated prefix \
+                     (inventory drift between the enumeration and the artifact?)"
+                ),
+            }
+        }
+        for (i, gen) in lf.generated.iter_mut().enumerate() {
+            if assigned[i].is_empty() {
+                bail!(
+                    "generated `{}` has no enumerated leaves — the enumeration and the \
+                     artifact disagree",
+                    gen.prefix
+                );
+            }
+            gen.cases = std::mem::take(&mut assigned[i]);
+        }
+    }
     lf.validate()?;
     let toml = lf.to_toml()?;
 
@@ -95,11 +137,32 @@ fn lock(args: &[String]) -> anyhow::Result<()> {
             &std::fs::read_to_string(&check).with_context(|| format!("reading {check}"))?,
         )?;
         existing.validate()?;
-        // Inventory equality: names + tags (artifact hash may differ).
-        if existing.case != lf.case || existing.generated != lf.generated {
+        // Inventory equality: names + tags (artifact hash may differ),
+        // plus leaf enumerations when an enumeration was provided —
+        // without one, a leaf-pinned lockfile gets its static parts
+        // checked and says so.
+        let static_generated_ok = existing.generated.len() == lf.generated.len()
+            && existing
+                .generated
+                .iter()
+                .zip(&lf.generated)
+                .all(|(a, b)| a.prefix == b.prefix && a.tags == b.tags);
+        let leaves_ok = leaves_path.is_none()
+            || existing
+                .generated
+                .iter()
+                .zip(&lf.generated)
+                .all(|(a, b)| a.cases == b.cases);
+        if existing.case != lf.case || !static_generated_ok || !leaves_ok {
             bail!(
                 "lockfile drift: `{check}` does not match the suite's inventory \
                  (regenerate with `component-test lock` and review the diff)"
+            );
+        }
+        if leaves_path.is_none() && existing.generated.iter().any(|g| !g.cases.is_empty()) {
+            println!(
+                "note: {check} pins generated leaves; static check only (pass --leaves \
+                 for the full comparison)"
             );
         }
         println!("ok: {} cases match {check}", lf.case.len());

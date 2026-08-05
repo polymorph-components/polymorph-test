@@ -619,6 +619,86 @@ fn lock_check_matches_committed() {
     assert!(out.stdout.contains("ok: 3 cases match"), "{}", out.stdout);
 }
 
+/// `--leaves` pins the fixture suite's generated row (`fixture/gen`
+/// enumerates tc1/tc2 deterministically): generation renders one leaf
+/// per line, a matching check passes, and a drifted enumeration —
+/// leaves the artifact's rows never produced, or rows the enumeration
+/// never touched — fails by name.
+#[test]
+#[ignore = "needs built components: run via `just test-wasm`"]
+fn lock_leaves_pins_generated_rows() {
+    let wasm = suite_artifact("fixture_suite");
+    let wasm = wasm.to_str().unwrap();
+    let leaves = tmpfile(
+        "leaves-fixture.txt",
+        "fixture/hsm/attest\nfixture/gen/tc1\nfixture/gen/tc2\n",
+    );
+    let out_lock = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("fixture-leaves.lock");
+    let out = run(
+        &[
+            "lock",
+            wasm,
+            "--leaves",
+            leaves.to_str().unwrap(),
+            "-o",
+            out_lock.to_str().unwrap(),
+        ],
+        None,
+    );
+    assert_eq!(out.code, 0, "stderr: {}", out.stderr);
+    let text = std::fs::read_to_string(&out_lock).unwrap();
+    assert!(
+        text.contains("cases = [\n    \"tc1\",\n    \"tc2\",\n]"),
+        "one leaf per line:\n{text}"
+    );
+
+    let out = run(
+        &[
+            "lock",
+            wasm,
+            "--leaves",
+            leaves.to_str().unwrap(),
+            "--check",
+            out_lock.to_str().unwrap(),
+        ],
+        None,
+    );
+    assert_eq!(out.code, 0, "stderr: {}", out.stderr);
+
+    // Checking without an enumeration still passes on the static
+    // parts, and says the comparison was partial.
+    let out = run(&["lock", wasm, "--check", out_lock.to_str().unwrap()], None);
+    assert_eq!(out.code, 0, "stderr: {}", out.stderr);
+    assert!(out.stdout.contains("static check only"), "{}", out.stdout);
+
+    // A drifted enumeration fails the check.
+    let drifted = tmpfile("leaves-drifted.txt", "fixture/gen/tc1\nfixture/gen/tc3\n");
+    let out = run(
+        &[
+            "lock",
+            wasm,
+            "--leaves",
+            drifted.to_str().unwrap(),
+            "--check",
+            out_lock.to_str().unwrap(),
+        ],
+        None,
+    );
+    assert_eq!(out.code, 1, "stdout: {}", out.stdout);
+    assert!(out.stderr.contains("lockfile drift"), "{}", out.stderr);
+
+    // An enumeration entry matching nothing is inventory drift.
+    let alien = tmpfile("leaves-alien.txt", "fixture/gen/tc1\nother/suite/case\n");
+    let out = run(&["lock", wasm, "--leaves", alien.to_str().unwrap()], None);
+    assert_eq!(out.code, 1);
+    assert!(
+        out.stderr
+            .contains("matches no static case or generated prefix"),
+        "{}",
+        out.stderr
+    );
+}
+
 #[test]
 #[ignore = "needs built components: run via `just test-wasm`"]
 fn lock_check_detects_drift() {
