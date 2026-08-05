@@ -20,8 +20,8 @@ mod bindings {
 }
 
 use bindings::exports::wasi::cli::run::Guest as RunGuest;
-use bindings::lann::component_test::tests::{all, Outcome, TestCase};
-use bindings::lann::component_test_provider::factory::new_context;
+use bindings::polymorph::component_test::tests::{all, Outcome, TestCase};
+use bindings::polymorph::component_test_provider::factory::new_context;
 use bindings::wasi::cli::stdout::write_via_stream;
 use bindings::wit_stream;
 

@@ -1,19 +1,19 @@
 // Prototype composition: provider → suite → runner core.
 // `wac plug` is insufficient here: the provider instance must be shared
 // by the suite (test-context import) and the runner core (factory import).
-package lann:composed;
+package polymorph:composed;
 
-let provider = new lann:provider-impl { ... };
+let provider = new polymorph:provider-impl { ... };
 
-let suite = new lann:sample-suite {
-  "lann:component-test/test-context@0.1.0": provider["lann:component-test/test-context@0.1.0"],
+let suite = new polymorph:sample-suite {
+  "polymorph:component-test/test-context@0.1.0": provider["polymorph:component-test/test-context@0.1.0"],
   ...
 };
 
-let runner = new lann:runner-cli-impl {
-  "lann:component-test/test-context@0.1.0": provider["lann:component-test/test-context@0.1.0"],
-  "lann:component-test/tests@0.1.0": suite["lann:component-test/tests@0.1.0"],
-  "lann:component-test-provider/factory@0.1.0": provider["lann:component-test-provider/factory@0.1.0"],
+let runner = new polymorph:runner-cli-impl {
+  "polymorph:component-test/test-context@0.1.0": provider["polymorph:component-test/test-context@0.1.0"],
+  "polymorph:component-test/tests@0.1.0": suite["polymorph:component-test/tests@0.1.0"],
+  "polymorph:component-test-provider/factory@0.1.0": provider["polymorph:component-test-provider/factory@0.1.0"],
   ...
 };
 

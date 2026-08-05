@@ -1,4 +1,4 @@
-package lann:component-test-viewer@0.1.0;
+package polymorph:component-test-viewer@0.1.0;
 
 /// The viewer's aggregation engine: the *same* Rust join/validation
 /// code the CLI gate runs (`component-test aggregate`), compiled to a

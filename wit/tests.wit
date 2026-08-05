@@ -1,4 +1,4 @@
-/// `lann:component-test` is the contract between test *suites* — components
+/// `polymorph:component-test` is the contract between test *suites* — components
 /// that carry test cases — and test *runners* — components or hosts that
 /// execute the cases and report results. A suite exports `tests` and imports
 /// `test-context`; a runner imports `tests` and arranges for `test-context`
@@ -9,7 +9,7 @@
 /// capability manifests declaratively, from static metadata carried
 /// alongside the suite (see the repo's README), and a case that does not
 /// apply to a target is never materialized for it. `run` is feature-blind.
-package lann:component-test@0.1.0;
+package polymorph:component-test@0.1.0;
 
 /// The runner-provided sideband a test case can talk to while running.
 ///

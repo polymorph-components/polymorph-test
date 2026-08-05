@@ -35,7 +35,7 @@ default-members = [
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0 WITH LLVM-exception"
-repository = "https://github.com/lann/component-test"
+repository = "https://github.com/polymorph-components/polymorph-test"
 
 [workspace.dependencies]
 component-test-core = { path = "crates/component-test-core" }

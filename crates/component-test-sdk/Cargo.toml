@@ -1,6 +1,6 @@
 [package]
 name = "component-test-sdk"
-description = "Guest SDK for lann:component-test suites"
+description = "Guest SDK for polymorph:component-test suites"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

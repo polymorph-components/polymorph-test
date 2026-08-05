@@ -3,15 +3,15 @@
 // `tests` plus the provider's `test-context` and `factory` (all backed
 // by one shared provider instance, so the `context` resource type is
 // the same across all three).
-package lann:suite-bundle;
+package polymorph:suite-bundle;
 
-let provider = new lann:provider-impl { ... };
+let provider = new polymorph:provider-impl { ... };
 
-let suite = new lann:sample-suite {
-  "lann:component-test/test-context@0.1.0": provider["lann:component-test/test-context@0.1.0"],
+let suite = new polymorph:sample-suite {
+  "polymorph:component-test/test-context@0.1.0": provider["polymorph:component-test/test-context@0.1.0"],
   ...
 };
 
-export provider["lann:component-test/test-context@0.1.0"];
-export provider["lann:component-test-provider/factory@0.1.0"];
-export suite["lann:component-test/tests@0.1.0"];
+export provider["polymorph:component-test/test-context@0.1.0"];
+export provider["polymorph:component-test-provider/factory@0.1.0"];
+export suite["polymorph:component-test/tests@0.1.0"];

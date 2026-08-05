@@ -1,4 +1,4 @@
-# `lann:component-test`
+# `polymorph:component-test`
 
 Common infrastructure for testing WebAssembly components: a small WIT
 contract between test **suites** (components that carry test cases) and test
@@ -235,10 +235,10 @@ Synthesized from one lineage and one composition model:
 - [`lann/wasi-test`](https://github.com/lann/wasi-test) — the composition
   model: suite exports, runner imports, the linker registers.
 - The conformance-suite lineage:
-  [`lann/component-webrtc-datachannels`](https://github.com/lann/component-webrtc-datachannels)'s
+  [`polymorph-components/polymorph-webrtc-datachannels`](https://github.com/polymorph-components/polymorph-webrtc-datachannels)'s
   suite (two-party, networked, timing-shaped; environment executors,
   expected-fail with unexpected-pass enforcement), from which
-  [`lann/component-webcrypto`](https://github.com/lann/component-webcrypto)'s
+  [`polymorph-components/polymorph-webcrypto`](https://github.com/polymorph-components/polymorph-webcrypto)'s
   system forked and evolved (pure-compute, ~8000 cases; self-describing
   inventories, capability manifests, lockfiles, one results wire format,
   many adapters, one aggregator). The feature-tag scheme restructures

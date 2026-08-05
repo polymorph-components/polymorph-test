@@ -6,8 +6,8 @@ provider, then plug the bundle into a runner core.
 ```sh
 cargo build --target wasm32-wasip2 --release -p sample-suite -p provider -p runner-cli
 wac compose \
-  -d lann:provider-impl=../../target/wasm32-wasip2/release/provider.wasm \
-  -d lann:sample-suite=../../target/wasm32-wasip2/release/sample_suite.wasm \
+  -d polymorph:provider-impl=../../target/wasm32-wasip2/release/provider.wasm \
+  -d polymorph:sample-suite=../../target/wasm32-wasip2/release/sample_suite.wasm \
   -o bundle.wasm bundle.wac
 wac plug --plug bundle.wasm ../../target/wasm32-wasip2/release/runner_cli.wasm -o composed.wasm
 wasmtime run -W component-model-async -S p3 composed.wasm

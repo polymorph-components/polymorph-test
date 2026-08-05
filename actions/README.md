@@ -2,7 +2,7 @@
 
 Composite actions for consumers of the stack (#14), one per concern.
 Reference them by pinned rev, like every other consumption path here:
-`uses: lann/component-test/actions/aggregate@<rev>`.
+`uses: polymorph-components/polymorph-test/actions/aggregate@<rev>`.
 
 ## `aggregate`
 
@@ -15,7 +15,7 @@ stays green; a failing case, coverage gap, or manifest violation is
 red. The action adds presentation, never verdict.
 
 ```yaml
-- uses: lann/component-test/actions/aggregate@<rev>
+- uses: polymorph-components/polymorph-test/actions/aggregate@<rev>
   with:
     lock: conformance/tests.lock
     manifest: conformance/targets.toml

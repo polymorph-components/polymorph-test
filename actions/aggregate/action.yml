@@ -54,7 +54,7 @@ runs:
         fi
         root="$RUNNER_TEMP/component-test-cli"
         cargo install -q --locked --root "$root" \
-          --git https://github.com/lann/component-test \
+          --git https://github.com/polymorph-components/polymorph-test \
           --rev "${ACTION_REF:-main}" component-test-cli
         echo "CT_CLI=$root/bin/component-test" >> "$GITHUB_ENV"
 

@@ -10,8 +10,8 @@ None.
 
 ## Expected failures
 
-- `native` `fixture/trap/boom`: deliberate trap: the fixture pins the runner's poisoning containment (https://github.com/lann/component-test/issues/45)
-- `sim` `fixture/trap/boom`: deliberate trap: the fixture pins the runner's poisoning containment (https://github.com/lann/component-test/issues/45)
+- `native` `fixture/trap/boom`: deliberate trap: the fixture pins the runner's poisoning containment (https://github.com/polymorph-components/polymorph-test/issues/45)
+- `sim` `fixture/trap/boom`: deliberate trap: the fixture pins the runner's poisoning containment (https://github.com/polymorph-components/polymorph-test/issues/45)
 
 ## Summary
 

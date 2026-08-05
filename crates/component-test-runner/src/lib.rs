@@ -1,4 +1,4 @@
-//! Host-embedding runner for `lann:component-test` suites.
+//! Host-embedding runner for `polymorph:component-test` suites.
 //!
 //! Loads a suite component (world `suite` from `wit/tests.wit`), provides
 //! its `test-context` import host-side, and runs every case in a fresh
@@ -22,8 +22,8 @@ use wasmtime::Result;
 use wasmtime::{Config, Engine, Store};
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
-const TESTS_INSTANCE: &str = "lann:component-test/tests@0.1.0";
-const CONTEXT_INSTANCE: &str = "lann:component-test/test-context@0.1.0";
+const TESTS_INSTANCE: &str = "polymorph:component-test/tests@0.1.0";
+const CONTEXT_INSTANCE: &str = "polymorph:component-test/test-context@0.1.0";
 
 /// The runner's own per-case state (the diagnostic sink); embed one in
 /// custom store data and expose it via [`RunnerView`].

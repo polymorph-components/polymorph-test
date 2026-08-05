@@ -18,7 +18,7 @@ missing-features = []
 [[targets.native.expected-fail]]
 case = "fixture/trap/boom"
 reason = "deliberate trap: the fixture pins the runner's poisoning containment"
-tracking = "https://github.com/lann/component-test/issues/45"
+tracking = "https://github.com/polymorph-components/polymorph-test/issues/45"
 
 [targets.sim]
 missing-features = ["hsm"]
@@ -26,4 +26,4 @@ missing-features = ["hsm"]
 [[targets.sim.expected-fail]]
 case = "fixture/trap/boom"
 reason = "deliberate trap: the fixture pins the runner's poisoning containment"
-tracking = "https://github.com/lann/component-test/issues/45"
+tracking = "https://github.com/polymorph-components/polymorph-test/issues/45"

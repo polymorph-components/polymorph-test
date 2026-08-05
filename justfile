@@ -68,8 +68,8 @@ verify-compose: build
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
     cd examples/compose
     wac compose \
-        -d lann:provider-impl=../../{{release_dir}}/provider.wasm \
-        -d lann:sample-suite=../../{{release_dir}}/sample_suite.wasm \
+        -d polymorph:provider-impl=../../{{release_dir}}/provider.wasm \
+        -d polymorph:sample-suite=../../{{release_dir}}/sample_suite.wasm \
         -o bundle.wasm bundle.wac
     wac plug --plug bundle.wasm \
         ../../{{release_dir}}/runner_cli.wasm -o composed.wasm
@@ -97,7 +97,7 @@ verify-node: build
         ../../{{release_dir}}/sample_suite.wasm \
         --name suite \
         --async-mode jspi \
-        --map 'lann:component-test/test-context@0.1.0=../context.js' \
+        --map 'polymorph:component-test/test-context@0.1.0=../context.js' \
         -o suite > /dev/null
     out=$(node --experimental-wasm-jspi runner-host-provider.mjs) && code=0 || code=$?
     test "$code" -eq 1

@@ -6,7 +6,7 @@ here are edits to frozen surfaces or verification steps skipped.
 
 ## What this is
 
-`lann:component-test`: common infrastructure for testing WebAssembly
+`polymorph:component-test`: common infrastructure for testing WebAssembly
 components. A small frozen WIT contract between test *suites* and test
 *runners*, plus the tooling around it: guest SDK, inventory lockfiles,
 capability manifests via feature tags, a canonical results format,
@@ -22,7 +22,7 @@ Design intent lives in three documents, in decreasing authority:
 - `docs/findings.md` — empirical toolchain findings. When you discover
   new toolchain behavior (wasmtime/wit-bindgen/jco/wac), append it here.
 
-Work is tracked in GitHub issues (`gh issue list -R lann/component-test`).
+Work is tracked in GitHub issues (`gh issue list -R polymorph-components/polymorph-test`).
 Active milestone: **M1 — replace the webcrypto conformance harness**
 (issues #27–#33). Design-history context is in issue threads; check
 them before re-litigating a decision.
