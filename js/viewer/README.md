@@ -39,9 +39,10 @@ deliberate trap showing as tracked expected-fail debt on both targets.
 
 - `harness.mjs` — the browser-safe runner core: tag-inventory parsing
   (custom sections), mark scheduling, the per-case loop with shard
-  striping. Shared by the page's workers and the Node selftest; the
-  future gating jco adapter (#5) must use this same module — the gate
-  and the page must not drift.
+  striping and the opt-in gating-adapter options (#50: per-case fresh
+  instances, per-case wall bound). Shared by the page's workers and
+  the Node selftest; the gating jco adapters (#5) must use this same
+  module — the gate and the page must not drift.
 - `context.js` — the host-implemented `test-context` provider.
 - `worker.mjs` — one shard of a live run (module workers cannot see
   import maps, which is why every transpile here maps imports to
