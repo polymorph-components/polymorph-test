@@ -1,0 +1,19 @@
+{
+  "name": "@lann/component-test-js",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "The lann:component-test stack's JS runner core, consumable as a rev-pinned git dependency (npm git installs cannot select subdirectories, so this facade lives at the repo root). Source-only by design: the browser-safe harness (tag inventory, mark scheduling, the case loop), the test-context provider, and the shard worker. Built artifacts (the viewer-aggregate engine) are deliberately excluded - they wait for registry publishing. Stability policy until then: pinned rev or nothing.",
+  "license": "Apache-2.0 WITH LLVM-exception",
+  "repository": "github:lann/component-test",
+  "files": [
+    "js/viewer/harness.mjs",
+    "js/viewer/context.js",
+    "js/viewer/worker.mjs"
+  ],
+  "exports": {
+    "./harness": "./js/viewer/harness.mjs",
+    "./context": "./js/viewer/context.js",
+    "./worker": "./js/viewer/worker.mjs"
+  }
+}
