@@ -1,4 +1,4 @@
-//! Core data model for `polymorph:component-test`: the normative case-name
+//! Core data model for `polymorph:test`: the normative case-name
 //! grammar, feature tags, and verdicts. Shared by guest SDKs and host
 //! tooling; deliberately dependency-light.
 

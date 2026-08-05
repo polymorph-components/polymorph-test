@@ -1,6 +1,6 @@
 [package]
 name = "component-test-results"
-description = "The canonical results model for polymorph:component-test: WIT-shaped events, JSONL edge encoding, stream-to-document fold"
+description = "The canonical results model for polymorph:test: WIT-shaped events, JSONL edge encoding, stream-to-document fold"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

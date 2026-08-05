@@ -97,7 +97,7 @@ verify-node: build
         ../../{{release_dir}}/sample_suite.wasm \
         --name suite \
         --async-mode jspi \
-        --map 'polymorph:component-test/test-context@0.1.0=../context.js' \
+        --map 'polymorph:test/test-context@0.1.0=../context.js' \
         -o suite > /dev/null
     out=$(node --experimental-wasm-jspi runner-host-provider.mjs) && code=0 || code=$?
     test "$code" -eq 1

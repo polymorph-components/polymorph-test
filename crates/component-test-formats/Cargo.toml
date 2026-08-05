@@ -1,6 +1,6 @@
 [package]
 name = "component-test-formats"
-description = "Host-side formats for polymorph:component-test: lockfiles, results events/documents (JSONL edge encoding)"
+description = "Host-side formats for polymorph:test: lockfiles, results events/documents (JSONL edge encoding)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -6,7 +6,7 @@ here are edits to frozen surfaces or verification steps skipped.
 
 ## What this is
 
-`polymorph:component-test`: common infrastructure for testing WebAssembly
+`polymorph:test`: common infrastructure for testing WebAssembly
 components. A small frozen WIT contract between test *suites* and test
 *runners*, plus the tooling around it: guest SDK, inventory lockfiles,
 capability manifests via feature tags, a canonical results format,

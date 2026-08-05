@@ -3,8 +3,8 @@ package polymorph:runner-cli@0.1.0;
 /// Prototype wasip3 CLI runner core: executes a composed suite and
 /// reports over stdout.
 world runner-cli {
-    import polymorph:component-test/tests@0.1.0;
-    import polymorph:component-test-provider/factory@0.1.0;
+    import polymorph:test/tests@0.1.0;
+    import polymorph:test-provider/factory@0.1.0;
     import wasi:cli/stdout@0.3.0;
     export wasi:cli/run@0.3.0;
 }

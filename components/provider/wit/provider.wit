@@ -1,12 +1,12 @@
 /// Reference context-provider surface. NOT part of the L1 contract
-/// (`polymorph:component-test`): this is the private interface between a
+/// (`polymorph:test`): this is the private interface between a
 /// context provider and a runner core, and may churn freely.
-package polymorph:component-test-provider@0.1.0;
+package polymorph:test-provider@0.1.0;
 
 /// Creates linked (context, observer) pairs: the context is lent to a
 /// test case; the observer is the runner core's end for watching it.
 interface factory {
-    use polymorph:component-test/test-context@0.1.0.{context};
+    use polymorph:test/test-context@0.1.0.{context};
 
     /// The runner core's end of a linked pair.
     resource observer {
@@ -25,6 +25,6 @@ interface factory {
 
 /// The reference provider component.
 world provider {
-    export polymorph:component-test/test-context@0.1.0;
+    export polymorph:test/test-context@0.1.0;
     export factory;
 }

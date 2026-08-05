@@ -1,6 +1,6 @@
 [package]
 name = "component-test-sdk-macro"
-description = "The #[suite] attribute macro for polymorph:component-test guest suites"
+description = "The #[suite] attribute macro for polymorph:test guest suites"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

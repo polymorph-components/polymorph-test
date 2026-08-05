@@ -6,14 +6,14 @@ package polymorph:composed;
 let provider = new polymorph:provider-impl { ... };
 
 let suite = new polymorph:sample-suite {
-  "polymorph:component-test/test-context@0.1.0": provider["polymorph:component-test/test-context@0.1.0"],
+  "polymorph:test/test-context@0.1.0": provider["polymorph:test/test-context@0.1.0"],
   ...
 };
 
 let runner = new polymorph:runner-cli-impl {
-  "polymorph:component-test/test-context@0.1.0": provider["polymorph:component-test/test-context@0.1.0"],
-  "polymorph:component-test/tests@0.1.0": suite["polymorph:component-test/tests@0.1.0"],
-  "polymorph:component-test-provider/factory@0.1.0": provider["polymorph:component-test-provider/factory@0.1.0"],
+  "polymorph:test/test-context@0.1.0": provider["polymorph:test/test-context@0.1.0"],
+  "polymorph:test/tests@0.1.0": suite["polymorph:test/tests@0.1.0"],
+  "polymorph:test-provider/factory@0.1.0": provider["polymorph:test-provider/factory@0.1.0"],
   ...
 };
 

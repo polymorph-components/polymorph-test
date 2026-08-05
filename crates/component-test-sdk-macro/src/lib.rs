@@ -292,16 +292,16 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
             index: usize,
         }
 
-        impl __ct_bindings::exports::polymorph::component_test::tests::GuestTestCase for __CtCase {
+        impl __ct_bindings::exports::polymorph::test::tests::GuestTestCase for __CtCase {
             fn name(&self) -> String {
                 __ct_with_registry(|reg| reg.get(self.index).unwrap().0.to_string())
             }
 
             async fn run(
                 &self,
-                ctx: &__ct_bindings::polymorph::component_test::test_context::Context,
-            ) -> Result<(), __ct_bindings::exports::polymorph::component_test::tests::Outcome> {
-                use __ct_bindings::exports::polymorph::component_test::tests::Outcome;
+                ctx: &__ct_bindings::polymorph::test::test_context::Context,
+            ) -> Result<(), __ct_bindings::exports::polymorph::test::tests::Outcome> {
+                use __ct_bindings::exports::polymorph::test::tests::Outcome;
                 let ctx = TestContext::from_raw(ctx);
                 let verdict = __ct_with_registry(|reg| (reg.get(self.index).unwrap().1.run)(ctx));
                 verdict.await.map_err(|failure| match failure {
@@ -313,11 +313,11 @@ fn expand(module: &mut ItemMod, args: SuiteArgs) -> Result<TokenStream2> {
 
         struct __CtSuite;
 
-        impl __ct_bindings::exports::polymorph::component_test::tests::Guest for __CtSuite {
+        impl __ct_bindings::exports::polymorph::test::tests::Guest for __CtSuite {
             type TestCase = __CtCase;
 
-            async fn all() -> Vec<__ct_bindings::exports::polymorph::component_test::tests::TestCase> {
-                use __ct_bindings::exports::polymorph::component_test::tests::TestCase;
+            async fn all() -> Vec<__ct_bindings::exports::polymorph::test::tests::TestCase> {
+                use __ct_bindings::exports::polymorph::test::tests::TestCase;
                 __ct_with_registry(|reg| {
                     (0..reg.len())
                         .map(|index| TestCase::new(__CtCase { index }))

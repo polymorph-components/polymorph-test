@@ -1,4 +1,4 @@
-//! Guest SDK for `polymorph:component-test` suites.
+//! Guest SDK for `polymorph:test` suites.
 //!
 //! **Start with [`suite`]** (the `#[component_test_sdk::suite]`
 //! attribute): it owns names, tags, inventory, and all glue. The
@@ -41,17 +41,14 @@ pub mod bindings {
 /// raw contract binding. Unwrapped contract methods remain reachable
 /// through `Deref`.
 #[repr(transparent)]
-pub struct TestContext(bindings::polymorph::component_test::test_context::Context);
+pub struct TestContext(bindings::polymorph::test::test_context::Context);
 
 impl TestContext {
     #[doc(hidden)]
-    pub fn from_raw(
-        raw: &bindings::polymorph::component_test::test_context::Context,
-    ) -> &TestContext {
+    pub fn from_raw(raw: &bindings::polymorph::test::test_context::Context) -> &TestContext {
         // Sound: repr(transparent) single-field wrapper.
         unsafe {
-            &*(raw as *const bindings::polymorph::component_test::test_context::Context
-                as *const TestContext)
+            &*(raw as *const bindings::polymorph::test::test_context::Context as *const TestContext)
         }
     }
 
@@ -64,7 +61,7 @@ impl TestContext {
 }
 
 impl std::ops::Deref for TestContext {
-    type Target = bindings::polymorph::component_test::test_context::Context;
+    type Target = bindings::polymorph::test::test_context::Context;
     fn deref(&self) -> &Self::Target {
         &self.0
     }

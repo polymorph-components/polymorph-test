@@ -19,10 +19,8 @@ mod bindings {
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use bindings::exports::polymorph::component_test::test_context::{
-    Guest as ContextIfaceGuest, GuestContext,
-};
-use bindings::exports::polymorph::component_test_provider::factory::{
+use bindings::exports::polymorph::test::test_context::{Guest as ContextIfaceGuest, GuestContext};
+use bindings::exports::polymorph::test_provider::factory::{
     Context as ContextHandle, Guest as FactoryGuest, GuestObserver, Observer as ObserverHandle,
 };
 use bindings::wit_stream;

@@ -1,4 +1,4 @@
-# `polymorph:component-test`
+# `polymorph:test`
 
 Common infrastructure for testing WebAssembly components: a small WIT
 contract between test **suites** (components that carry test cases) and test

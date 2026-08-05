@@ -1,6 +1,6 @@
 [package]
 name = "component-test-core"
-description = "Core data model for polymorph:component-test: case-name grammar, feature marks, verdicts"
+description = "Core data model for polymorph:test: case-name grammar, feature marks, verdicts"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
