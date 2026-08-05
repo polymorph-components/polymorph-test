@@ -9,7 +9,7 @@ _default:
     @just --list --unsorted
 
 # Everything: host tests, component builds, all four verification paths.
-all: build test test-wasm lock-check verify-embed verify-compose verify-node verify-pipeline verify-aggregate verify-viewer
+all: build test test-wasm lock-check verify-embed verify-compose verify-node verify-pipeline verify-aggregate verify-viewer verify-emit
 
 # CI's native job: formatting, clippy, host tests, WIT validation.
 host-checks: fmt-check lint test wit-check
@@ -155,6 +155,42 @@ verify-aggregate: build
     test "$code" -eq 0  # the deliberate trap is declared expected-fail (#48)
     diff -u expected/verify-aggregate-matrix.md "$tmp/matrix.md"
     echo "verify-aggregate: matrix matches expected/"
+
+# The JUnit emitter (#11): golden-diff the fixture pipeline's XML
+# (times normalized - durations vary per run; everything else is
+# byte-stable).
+verify-emit: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ct() { cargo run -q -p component-test-runner --bin ct-runner -- "$@"; }
+    cli() { cargo run -q -p component-test-cli -- "$@"; }
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    ct {{release_dir}}/fixture_suite.wasm --jsonl --target native \
+        > "$tmp/native.jsonl" && code=0 || code=$?
+    test "$code" -eq 1
+    ct {{release_dir}}/fixture_suite.wasm --jsonl --target sim --missing hsm \
+        > "$tmp/sim.jsonl" && code=0 || code=$?
+    test "$code" -eq 1
+    cli emit junit --results "native=$tmp/native.jsonl" --results "sim=$tmp/sim.jsonl" \
+        | sed -E 's/time="[0-9.]+"/time="0.000"/g' > "$tmp/results.xml"
+    diff -u expected/verify-emit-junit.xml "$tmp/results.xml"
+    echo "verify-emit: junit matches expected/"
+
+# The fixture pipeline's JUnit XML at a stable path: CI's reporter
+# step renders it into the job summary (the #11 demo). The deliberate
+# trap is the point - the summary shows a real failure row.
+emit-demo: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ct() { cargo run -q -p component-test-runner --bin ct-runner -- "$@"; }
+    ct {{release_dir}}/fixture_suite.wasm --jsonl --target native \
+        > target/native.jsonl || true
+    ct {{release_dir}}/fixture_suite.wasm --jsonl --target sim --missing hsm \
+        > target/sim.jsonl || true
+    cargo run -q -p component-test-cli -- emit junit \
+        --results native=target/native.jsonl --results sim=target/sim.jsonl \
+        -o target/junit-demo.xml
+    echo "wrote target/junit-demo.xml"
 
 # --- viewer ------------------------------------------------------------
 

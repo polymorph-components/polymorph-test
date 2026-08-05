@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="native" tests="8" failures="1" errors="0" skipped="1" time="0.000">
+    <testcase classname="fixture/trap" name="before" time="0.000">
+      <system-out>before the storm</system-out>
+    </testcase>
+    <testcase classname="fixture/trap" name="boom" time="0.000">
+      <failure message="wasm trap: wasm `unreachable` instruction executed" type="trap"/>
+      <system-out>about to trap
+[diagnostics incomplete]</system-out>
+    </testcase>
+    <testcase classname="fixture/trap" name="after" time="0.000">
+      <system-out>still alive in a fresh instance</system-out>
+    </testcase>
+    <testcase classname="fixture/hsm" name="attest" time="0.000">
+      <system-out>exercising hsm attestation</system-out>
+    </testcase>
+    <testcase classname="fixture/hsm" name="declined" time="0.000">
+      <skipped message="not applicable (!hsm)"/>
+    </testcase>
+    <testcase classname="fixture/nested/deep" name="leaf" time="0.000">
+      <system-out>two levels down</system-out>
+    </testcase>
+    <testcase classname="fixture/gen" name="tc1" time="0.000">
+      <system-out>generated case 1</system-out>
+    </testcase>
+    <testcase classname="fixture/gen" name="tc2" time="0.000">
+      <system-out>generated case 2</system-out>
+    </testcase>
+  </testsuite>
+  <testsuite name="sim" tests="8" failures="1" errors="0" skipped="1" time="0.000">
+    <testcase classname="fixture/trap" name="before" time="0.000">
+      <system-out>before the storm</system-out>
+    </testcase>
+    <testcase classname="fixture/trap" name="boom" time="0.000">
+      <failure message="wasm trap: wasm `unreachable` instruction executed" type="trap"/>
+      <system-out>about to trap
+[diagnostics incomplete]</system-out>
+    </testcase>
+    <testcase classname="fixture/trap" name="after" time="0.000">
+      <system-out>still alive in a fresh instance</system-out>
+    </testcase>
+    <testcase classname="fixture/hsm" name="attest" time="0.000">
+      <skipped message="not applicable (hsm)"/>
+    </testcase>
+    <testcase classname="fixture/hsm" name="declined" time="0.000">
+      <system-out>asserting hsm is declined, not half-served</system-out>
+    </testcase>
+    <testcase classname="fixture/nested/deep" name="leaf" time="0.000">
+      <system-out>two levels down</system-out>
+    </testcase>
+    <testcase classname="fixture/gen" name="tc1" time="0.000">
+      <system-out>generated case 1</system-out>
+    </testcase>
+    <testcase classname="fixture/gen" name="tc2" time="0.000">
+      <system-out>generated case 2</system-out>
+    </testcase>
+  </testsuite>
+</testsuites>

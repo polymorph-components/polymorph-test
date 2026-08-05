@@ -10,6 +10,12 @@
 //!   aggregate --lock tests.lock --manifest targets.toml
 //!             [--results target=path.jsonl]... [-o matrix.md]
 //!       Cross-target validation + markdown matrix (#30).
+//!   emit junit [--lock tests.lock] [--results target=path.jsonl]...
+//!             [-o results.xml]
+//!       Convert results streams to JUnit XML for CI test UIs (#11).
+//!       A converter, not a gate: always exits 0 after writing.
+
+mod junit;
 
 use std::io::{IsTerminal, Read};
 
@@ -25,7 +31,9 @@ fn usage() -> String {
     "usage: component-test lock <suite.wasm> [-o tests.lock] [--check tests.lock] [--leaves names.txt]\n       \
      component-test fold [tests.lock] < results.jsonl\n       \
      component-test aggregate --lock tests.lock --manifest targets.toml \
-     [--results target=path.jsonl]... [-o matrix.md]"
+     [--results target=path.jsonl]... [-o matrix.md]\n       \
+     component-test emit junit [--lock tests.lock] \
+     [--results target=path.jsonl]... [-o results.xml]"
         .into()
 }
 
@@ -35,6 +43,7 @@ fn main() -> anyhow::Result<()> {
         Some("lock") => lock(&args[1..]),
         Some("fold") => fold(&args[1..]),
         Some("aggregate") => aggregate_cmd(&args[1..]),
+        Some("emit") => emit_cmd(&args[1..]),
         Some("-h" | "--help" | "help") => {
             println!("{}", usage());
             Ok(())
@@ -371,4 +380,68 @@ fn aggregate_cmd(args: &[String]) -> anyhow::Result<()> {
             .unwrap_or_default()
     );
     std::process::exit(if agg.ok() { 0 } else { 1 });
+}
+
+/// `emit <format>`: convert results streams for foreign consumers.
+/// Formats: `junit`. With `--lock`, each stream folds against the
+/// lockfile (not-reached synthesis for dropped cases); without, the
+/// stream speaks for itself. A converter, not a gate — failures land
+/// *in* the output where the consuming UI wants them, and the exit
+/// code only reflects I/O; `fold`/`aggregate` remain the verdict
+/// authorities.
+fn emit_cmd(args: &[String]) -> anyhow::Result<()> {
+    let format = match args.first().map(|s| s.as_str()) {
+        Some("junit") => "junit",
+        other => bail!(
+            "emit: unknown or missing format {other:?} (supported: junit)\n{}",
+            usage()
+        ),
+    };
+    let mut lock_path = None;
+    let mut result_args: Vec<(String, String)> = Vec::new();
+    let mut out_path = None;
+    let mut it = args[1..].iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--lock" => lock_path = Some(it.next().context("--lock needs a path")?.clone()),
+            "--results" => {
+                let spec = it.next().context("--results needs target=path.jsonl")?;
+                let (target, path) = spec
+                    .split_once('=')
+                    .context("--results argument must be target=path.jsonl")?;
+                result_args.push((target.to_string(), path.to_string()));
+            }
+            "-o" => out_path = Some(it.next().context("-o needs a path")?.clone()),
+            "-h" | "--help" => {
+                println!("{}", usage());
+                return Ok(());
+            }
+            other => bail!("unexpected argument `{other}`\n{}", usage()),
+        }
+    }
+    if result_args.is_empty() {
+        bail!("emit {format}: at least one --results target=path.jsonl required");
+    }
+    let lockfile = match &lock_path {
+        Some(p) => Some(Lockfile::from_toml(
+            &std::fs::read_to_string(p).with_context(|| format!("reading {p}"))?,
+        )?),
+        None => None,
+    };
+    let mut docs = Vec::new();
+    for (target, path) in &result_args {
+        let stream = std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
+        let doc = results::fold_jsonl(
+            &stream,
+            &component_test_formats::selected_names(lockfile.as_ref(), &stream),
+        )
+        .with_context(|| format!("folding results for target `{target}` ({path})"))?;
+        docs.push((target.clone(), doc));
+    }
+    let xml = junit::junit(&docs);
+    match &out_path {
+        Some(path) => std::fs::write(path, &xml).with_context(|| format!("writing {path}"))?,
+        None => print!("{xml}"),
+    }
+    Ok(())
 }

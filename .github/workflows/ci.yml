@@ -42,6 +42,10 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    permissions:
+      contents: read
+      # The JUnit demo's reporter publishes a check run.
+      checks: write
     steps:
       - uses: actions/checkout@v5
 
@@ -64,3 +68,21 @@ jobs:
 
       - name: Verification matrix
         run: just all
+
+      # The #11 demo: the fixture pipeline's results, converted by
+      # `component-test emit junit`, rendered into the run's job summary
+      # by an off-the-shelf reporter. The fixture's deliberate trap
+      # appears as a real failure row; fail_on_failure stays off - the
+      # gate is `just all` above, and the fixture is *supposed* to fail.
+      - name: Emit JUnit (demo)
+        run: just emit-demo
+
+      - name: Render the test report into the job summary
+        uses: mikepenz/action-junit-report@v5
+        with:
+          report_paths: target/junit-demo.xml
+          check_name: conformance demo (fixture pipeline, via emit junit)
+          detailed_summary: true
+          include_passed: true
+          fail_on_failure: false
+          require_tests: true
