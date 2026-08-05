@@ -1,0 +1,98 @@
+name: component-test aggregate
+description: >
+  Validate per-target results-JSONL streams against a lockfile and
+  target manifest with `component-test aggregate`, publish the matrix
+  to the job summary, and surface validation findings as workflow
+  annotations. The gate is the CLI's own exit code, passed through
+  unchanged: a missing *optional* target is a warning annotation and a
+  green step; a failing case, coverage gap, or manifest violation is
+  red. This action adds presentation, never verdict.
+
+inputs:
+  lock:
+    description: Path to the suite's tests.lock.
+    required: true
+  manifest:
+    description: Path to targets.toml.
+    required: true
+  results:
+    description: >
+      Per-target results, one `target=path.jsonl` per line (the CLI's
+      --results syntax).
+    required: true
+  summary-title:
+    description: Heading for the job-summary section.
+    default: Conformance matrix
+  cli:
+    description: >
+      Path to a component-test binary. When empty, the action installs
+      one with `cargo install --locked` from this repository at the
+      same ref the action itself was referenced by (requires a Rust
+      toolchain on the runner).
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve the component-test CLI
+      shell: bash
+      env:
+        INPUT_CLI: ${{ inputs.cli }}
+        # The ref this action was referenced by (`uses: ...@<ref>`):
+        # the CLI is installed from the same rev, so presentation and
+        # validation semantics cannot skew.
+        ACTION_REF: ${{ github.action_ref }}
+      run: |
+        set -euo pipefail
+        if [ -n "$INPUT_CLI" ]; then
+          echo "CT_CLI=$INPUT_CLI" >> "$GITHUB_ENV"
+          exit 0
+        fi
+        if command -v component-test >/dev/null 2>&1; then
+          echo "CT_CLI=component-test" >> "$GITHUB_ENV"
+          exit 0
+        fi
+        root="$RUNNER_TEMP/component-test-cli"
+        cargo install -q --locked --root "$root" \
+          --git https://github.com/lann/component-test \
+          --rev "${ACTION_REF:-main}" component-test-cli
+        echo "CT_CLI=$root/bin/component-test" >> "$GITHUB_ENV"
+
+    - name: Aggregate, publish, annotate
+      shell: bash
+      env:
+        INPUT_LOCK: ${{ inputs.lock }}
+        INPUT_MANIFEST: ${{ inputs.manifest }}
+        INPUT_RESULTS: ${{ inputs.results }}
+        INPUT_TITLE: ${{ inputs.summary-title }}
+      run: |
+        set -uo pipefail
+        args=(aggregate --lock "$INPUT_LOCK" --manifest "$INPUT_MANIFEST")
+        while IFS= read -r line; do
+          line="${line#"${line%%[![:space:]]*}"}"
+          [ -n "$line" ] && args+=(--results "$line")
+        done <<< "$INPUT_RESULTS"
+        matrix="$RUNNER_TEMP/matrix.md"
+        stderr="$RUNNER_TEMP/aggregate.stderr"
+        stdout="$RUNNER_TEMP/aggregate.stdout"
+        "$CT_CLI" "${args[@]}" -o "$matrix" > "$stdout" 2> "$stderr"
+        code=$?
+        # Findings -> annotations. The CLI prints one per line:
+        #   warning: ...   (tolerated: missing optional target, ...)
+        #   error: ...     (validation failure)
+        while IFS= read -r line; do
+          case "$line" in
+            warning:*) echo "::warning title=component-test aggregate::${line#warning: }" ;;
+            error:*)   echo "::error title=component-test aggregate::${line#error: }" ;;
+            *)         echo "$line" >&2 ;;
+          esac
+        done < "$stderr"
+        {
+          echo "## $INPUT_TITLE"
+          echo
+          cat "$stdout"   # the CLI summary line (counts + verdict)
+          echo
+          cat "$matrix"
+        } >> "$GITHUB_STEP_SUMMARY"
+        cat "$stdout"
+        exit "$code"

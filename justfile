@@ -183,6 +183,8 @@ emit-demo: build
     #!/usr/bin/env bash
     set -euo pipefail
     ct() { cargo run -q -p component-test-runner --bin ct-runner -- "$@"; }
+    cargo run -q -p component-test-cli -- lock {{release_dir}}/fixture_suite.wasm \
+        -o target/tests.lock > /dev/null
     ct {{release_dir}}/fixture_suite.wasm --jsonl --target native \
         > target/native.jsonl || true
     ct {{release_dir}}/fixture_suite.wasm --jsonl --target sim --missing hsm \

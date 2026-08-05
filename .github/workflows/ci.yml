@@ -75,6 +75,22 @@ jobs:
       - name: Emit JUnit (demo)
         run: just emit-demo
 
+      - name: Aggregate the demo results into the job summary
+        # Dogfoods actions/aggregate (the #14 composite action): the
+        # matrix lands in the job summary and validation findings
+        # become annotations; the exit code is the CLI's own gate. The
+        # fixture's deliberate trap is declared expected-fail in the
+        # example manifest, so this is green with the debt reported.
+        uses: ./actions/aggregate
+        with:
+          lock: target/tests.lock
+          manifest: examples/aggregate/targets.toml
+          results: |
+            native=target/native.jsonl
+            sim=target/sim.jsonl
+          summary-title: Fixture pipeline matrix (actions/aggregate demo)
+          cli: target/debug/component-test
+
       - name: Render the test report into the job summary
         # annotate_only: the fixture pipeline *deliberately* fails (the
         # trap case), so a check run would put a red X on every green

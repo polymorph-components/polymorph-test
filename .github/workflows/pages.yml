@@ -1,0 +1,85 @@
+name: pages
+
+# The #14 publish-viewer concern: deploy the results viewer + live
+# browser harness (js/viewer) to GitHub Pages, with the demo fixtures
+# it fetches by repo-relative path. The page's aggregation engine is
+# the gate's own Rust compiled to wasm (built here from the same
+# tree), so the public page can never look greener than CI.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: pages
+          cache-all-crates: true
+
+      - name: Install Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install tools
+        run: ./scripts/setup.sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Build the viewer engines
+        run: just viewer-build
+
+      - name: Assemble the site
+        # The tree mirrors the repository layout: the viewer resolves
+        # its engine and the demo fixtures by relative path (see
+        # js/viewer/README.md), so publishing preserves paths instead
+        # of flattening. The shim ships whole - its browser build's
+        # internal imports are relative within the package.
+        run: |
+          set -euo pipefail
+          mkdir -p _site/js/viewer _site/components/fixture-suite _site/examples/aggregate _site/expected
+          cp -r js/viewer/index.html js/viewer/app.mjs js/viewer/viewer.css \
+                js/viewer/harness.mjs js/viewer/context.js js/viewer/worker.mjs \
+                js/viewer/README.md js/viewer/generated js/viewer/suite \
+                _site/js/viewer/
+          mkdir -p _site/js/viewer/node_modules/@bytecodealliance
+          cp -r js/viewer/node_modules/@bytecodealliance/preview2-shim \
+                _site/js/viewer/node_modules/@bytecodealliance/
+          cp components/fixture-suite/tests.lock _site/components/fixture-suite/
+          cp examples/aggregate/targets.toml _site/examples/aggregate/
+          cp expected/verify-pipeline-fixture.jsonl _site/expected/
+          cat > _site/index.html <<'EOF'
+          <!doctype html><meta charset="utf-8">
+          <meta http-equiv="refresh" content="0; url=js/viewer/index.html">
+          <a href="js/viewer/index.html">component-test viewer</a>
+          EOF
+
+      - name: Upload the Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+      - name: Deploy
+        id: deploy
+        uses: actions/deploy-pages@v4
