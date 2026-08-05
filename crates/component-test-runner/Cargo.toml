@@ -21,3 +21,6 @@ wasmtime-wasi = "47"
 [[bin]]
 name = "ct-runner"
 path = "src/bin/ct-runner.rs"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

@@ -33,21 +33,51 @@ pub struct CtCtx {
     diagnostics: Vec<String>,
     /// Print each diagnostic as it arrives (human mode).
     live_print: bool,
-    /// Epoch ticks observed by the deadline callback in the current
-    /// budget phase (enumeration, or one case). The callback only
-    /// fires while wasm executes, and missed ticks collapse into one
-    /// callback on resume, so this approximates *execution* time
-    /// (`ticks × EPOCH_TICK`) and under-counts OS preemption — the
-    /// contention-robust direction for a budget.
-    budget_ticks: u64,
-    /// Tick budget for the phase; 0 = unlimited.
-    budget_max_ticks: u64,
+    /// Executing-thread CPU time accumulated in the current budget
+    /// phase (enumeration, or one case). Sampled at each epoch-deadline
+    /// callback: the callback only fires while wasm executes, and the
+    /// delta between consecutive samples on the same thread is the
+    /// case's own execution regardless of the box's load. Counting the
+    /// *ticks* themselves is not contention-robust: ticks are global
+    /// wall clock, and a CPU-bound case under scheduler time-slicing
+    /// executes inside essentially every tick interval, so tick counts
+    /// degenerate to wall time exactly when the machine is contended
+    /// (observed downstream: an honestly-slow PBKDF2 case tripping the
+    /// budget at 8 jobs on 2 cores while using well under its budget
+    /// of CPU).
+    budget_used: std::time::Duration,
+    /// The previous sample: (thread, its CPU clock). A thread change
+    /// re-baselines instead of charging a bogus cross-thread delta
+    /// (defensive: workers poll their stores on dedicated threads).
+    budget_last: Option<(std::thread::ThreadId, std::time::Duration)>,
+    /// CPU-time budget for the phase, seconds; 0 = unlimited.
+    budget_max_secs: u64,
 }
 
 impl CtCtx {
     fn start_budget_phase(&mut self) {
-        self.budget_ticks = 0;
+        self.budget_used = std::time::Duration::ZERO;
+        self.budget_last = None;
     }
+}
+
+/// The executing thread's CPU time (`CLOCK_THREAD_CPUTIME_ID`).
+/// `None` on platforms without it; the budget then falls back to
+/// charging one tick per callback (the wall-approximating behavior).
+#[cfg(unix)]
+fn thread_cpu_time() -> Option<std::time::Duration> {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: ts is a valid out-pointer for the duration of the call.
+    let rc = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+    (rc == 0).then(|| std::time::Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32))
+}
+
+#[cfg(not(unix))]
+fn thread_cpu_time() -> Option<std::time::Duration> {
+    None
 }
 
 /// Raised by the epoch-deadline callback when a phase exceeds its
@@ -68,8 +98,6 @@ impl std::error::Error for ExecutionBudgetExceeded {}
 /// epoch at this interval, so budgets have ± one tick of slop and
 /// wasm pays one deadline check per tick.
 const EPOCH_TICK: std::time::Duration = std::time::Duration::from_millis(100);
-
-const TICKS_PER_SEC: u64 = 1_000 / EPOCH_TICK.as_millis() as u64;
 
 /// Default `--case-execution-budget` (seconds of wasm execution).
 pub const DEFAULT_CASE_EXECUTION_BUDGET_SECS: u64 = 10;
@@ -301,21 +329,39 @@ impl<D: RunnerView + 'static> Runner<D> {
         self.suite_artifact_sha256 = Some(component_test_formats::sha256_hex(suite_wasm));
     }
 
-    fn new_store(&self, live_print: bool, budget_max_ticks: u64) -> Result<Store<D>> {
+    fn new_store(&self, live_print: bool, budget_max_secs: u64) -> Result<Store<D>> {
         let mut store = Store::new(&self.engine, (self.make_data)());
         {
             let ct = store.data_mut().ct();
             ct.live_print = live_print;
-            ct.budget_max_ticks = budget_max_ticks;
+            ct.budget_max_secs = budget_max_secs;
         }
         // Armed before any wasm runs (instantiation executes guest
-        // code). The callback counts execution ticks against the
-        // current phase's budget; the driver resets the count per
-        // phase (enumeration, then each case).
+        // code). The callback samples the executing thread's CPU clock
+        // against the current phase's budget; the driver resets the
+        // accounting per phase (enumeration, then each case).
         store.epoch_deadline_callback(|mut cx| {
+            let now = thread_cpu_time();
+            let tid = std::thread::current().id();
             let ct = cx.data_mut().ct();
-            ct.budget_ticks += 1;
-            if ct.budget_max_ticks != 0 && ct.budget_ticks > ct.budget_max_ticks {
+            match (now, ct.budget_last) {
+                // Same thread, sane clock: charge the case its own
+                // execution since the last sample.
+                (Some(now), Some((last_tid, last))) if last_tid == tid && now >= last => {
+                    ct.budget_used += now - last;
+                    ct.budget_last = Some((tid, now));
+                }
+                // First sample of the phase, or a thread change:
+                // (re)baseline without charging.
+                (Some(now), _) => ct.budget_last = Some((tid, now)),
+                // No thread CPU clock on this platform: fall back to
+                // charging one tick per callback (approximates wall
+                // while executing).
+                (None, _) => ct.budget_used += EPOCH_TICK,
+            }
+            if ct.budget_max_secs != 0
+                && ct.budget_used >= std::time::Duration::from_secs(ct.budget_max_secs)
+            {
                 Err(ExecutionBudgetExceeded.into())
             } else {
                 Ok(wasmtime::UpdateDeadline::Continue(1))
@@ -336,8 +382,8 @@ impl<D: RunnerView + 'static> Runner<D> {
         self.enumerate_with(0).await
     }
 
-    async fn enumerate_with(&self, budget_max_ticks: u64) -> Result<Vec<String>> {
-        let mut store = self.new_store(false, budget_max_ticks)?;
+    async fn enumerate_with(&self, budget_max_secs: u64) -> Result<Vec<String>> {
+        let mut store = self.new_store(false, budget_max_secs)?;
         let instance = self.instantiate(&mut store).await?;
         let funcs = TestsFuncs::new(&mut store, &instance)?;
         let cases = funcs.all(&mut store).await?;
@@ -350,8 +396,8 @@ impl<D: RunnerView + 'static> Runner<D> {
 
     /// Start a session: fresh store + instance + enumeration, able to
     /// serve multiple cases (the instance-granularity knob).
-    async fn new_session(&self, live_print: bool, budget_max_ticks: u64) -> Result<Session<D>> {
-        let mut store = self.new_store(live_print, budget_max_ticks)?;
+    async fn new_session(&self, live_print: bool, budget_max_secs: u64) -> Result<Session<D>> {
+        let mut store = self.new_store(live_print, budget_max_secs)?;
         let instance = self.instantiate(&mut store).await?;
         let funcs = TestsFuncs::new(&mut store, &instance)?;
         let t = std::time::Instant::now();
@@ -407,7 +453,7 @@ impl<D: RunnerView + 'static> Runner<D> {
         }
         if session.is_none() {
             let created = with_wall_timeout(
-                self.new_session(live_print, exec_budget_secs * TICKS_PER_SEC),
+                self.new_session(live_print, exec_budget_secs),
                 case_timeout_secs,
             )
             .await;
@@ -479,7 +525,7 @@ impl<D: RunnerView + 'static> Runner<D> {
         let store = &mut session.store;
         // Each case gets a fresh execution-budget phase.
         store.data_mut().ct().start_budget_phase();
-        let exec_budget_secs = store.data_mut().ct().budget_max_ticks / TICKS_PER_SEC;
+        let exec_budget_secs = store.data_mut().ct().budget_max_secs;
         let case = session
             .cases
             .get(index)
@@ -602,10 +648,10 @@ impl<D: RunnerView + 'static> Runner<D> {
     /// filtered runs will not aggregate cleanly — by design).
     ///
     /// `case_execution_budget_secs`: budget on actual wasm *execution*
-    /// per case (approximated by epoch ticks observed while the guest
-    /// runs — roughly thread time, robust to OS preemption). Catches
-    /// CPU spins, which a wall timer cannot (the executor thread is
-    /// stuck inside wasm). `0` disables.
+    /// per case — the executing thread's CPU time, sampled at epoch
+    /// ticks, so a contended machine stretching a case's wall clock
+    /// does not eat its budget. Catches CPU spins, which a wall timer
+    /// cannot (the executor thread is stuck inside wasm). `0` disables.
     ///
     /// `case_timeout_secs`: wall clock per case, suspension included.
     /// Catches async wedges (a case awaiting something that never
@@ -732,7 +778,7 @@ impl<D: RunnerView + 'static> Runner<D> {
         // means a deterministically wedged constructor fails the run
         // once instead of once per case.
         let names = match with_wall_timeout(
-            self.enumerate_with(case_execution_budget_secs * TICKS_PER_SEC),
+            self.enumerate_with(case_execution_budget_secs),
             case_timeout_secs,
         )
         .await
