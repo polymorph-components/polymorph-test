@@ -14,8 +14,13 @@
 //!             [-o results.xml]
 //!       Convert results streams to JUnit XML for CI test UIs (#11).
 //!       A converter, not a gate: always exits 0 after writing.
+//!   pins --cargo-lock Cargo.lock [--js-lock lockfile]... [--expect rev]
+//!       One-rev-everywhere gate for downstream pin sets (#54): the
+//!       component-test-* crates in Cargo.lock and the JS facade's
+//!       npm/pnpm pin must agree on a single commit.
 
 mod junit;
+mod pins;
 
 use std::io::{IsTerminal, Read};
 
@@ -33,7 +38,9 @@ fn usage() -> String {
      component-test aggregate --lock tests.lock --manifest targets.toml \
      [--results target=path.jsonl]... [-o matrix.md]\n       \
      component-test emit junit [--lock tests.lock] \
-     [--results target=path.jsonl]... [-o results.xml]"
+     [--results target=path.jsonl]... [-o results.xml]\n       \
+     component-test pins --cargo-lock Cargo.lock \
+     [--js-lock lockfile]... [--expect rev]"
         .into()
 }
 
@@ -44,6 +51,7 @@ fn main() -> anyhow::Result<()> {
         Some("fold") => fold(&args[1..]),
         Some("aggregate") => aggregate_cmd(&args[1..]),
         Some("emit") => emit_cmd(&args[1..]),
+        Some("pins") => pins::pins_cmd(&args[1..]),
         Some("-h" | "--help" | "help") => {
             println!("{}", usage());
             Ok(())

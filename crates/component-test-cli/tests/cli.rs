@@ -97,6 +97,7 @@ fn usage_and_help() {
         &["lock", "--help"],
         &["fold", "--help"],
         &["aggregate", "--help"],
+        &["pins", "--help"],
     ] {
         let out = run(args, None);
         assert_eq!(out.code, 0, "{args:?}");
@@ -732,4 +733,136 @@ fn lock_emits_inventory_to_stdout() {
         out.stdout
     );
     assert!(out.stdout.contains("artifact_sha256"), "{}", out.stdout);
+}
+
+// ------------------------------------------------------ pins
+
+const PIN_REV: &str = "b80c13be7b9fecfed8ec10a91d23d8cf8349defe";
+const PIN_OTHER: &str = "1917446e19c9e84cd5b9ad8def56d924f60adf61";
+
+fn pin_cargo_lock(rev: &str) -> String {
+    format!(
+        "version = 4\n\n\
+         [[package]]\n\
+         name = \"component-test-runner\"\n\
+         version = \"0.1.0\"\n\
+         source = \"git+https://github.com/polymorph-components/polymorph-test?rev={rev}#{rev}\"\n\n\
+         [[package]]\n\
+         name = \"component-test-sdk\"\n\
+         version = \"0.1.0\"\n\
+         source = \"git+https://github.com/polymorph-components/polymorph-test?rev={rev}#{rev}\"\n"
+    )
+}
+
+fn pin_npm_lock(rev: &str) -> String {
+    format!(
+        "{{\n  \"packages\": {{\n    \"node_modules/@polymorph/component-test-js\": {{\n      \
+         \"resolved\": \"git+ssh://git@github.com/polymorph-components/polymorph-test.git#{rev}\"\n    }}\n  }}\n}}\n"
+    )
+}
+
+fn pin_pnpm_lock(rev: &str) -> String {
+    format!(
+        "importers:\n  .:\n    dependencies:\n      '@polymorph/component-test-js':\n        \
+         specifier: github:polymorph-components/polymorph-test#{rev}\n        \
+         version: https://codeload.github.com/polymorph-components/polymorph-test/tar.gz/{rev}\n"
+    )
+}
+
+#[test]
+fn pins_agreeing_trio_exits_zero() {
+    let cargo = tmpfile("pins-ok-cargo.lock", &pin_cargo_lock(PIN_REV));
+    let npm = tmpfile("pins-ok-npm.json", &pin_npm_lock(PIN_REV));
+    let pnpm = tmpfile("pins-ok-pnpm.yaml", &pin_pnpm_lock(PIN_REV));
+    let out = run(
+        &[
+            "pins",
+            "--cargo-lock",
+            cargo.to_str().unwrap(),
+            "--js-lock",
+            npm.to_str().unwrap(),
+            "--js-lock",
+            pnpm.to_str().unwrap(),
+            "--expect",
+            PIN_REV,
+        ],
+        None,
+    );
+    assert_eq!(out.code, 0, "stderr: {}", out.stderr);
+    assert!(out.stdout.contains(PIN_REV), "{}", out.stdout);
+}
+
+#[test]
+fn pins_js_skew_fails() {
+    let cargo = tmpfile("pins-skew-cargo.lock", &pin_cargo_lock(PIN_REV));
+    let npm = tmpfile("pins-skew-npm.json", &pin_npm_lock(PIN_OTHER));
+    let out = run(
+        &[
+            "pins",
+            "--cargo-lock",
+            cargo.to_str().unwrap(),
+            "--js-lock",
+            npm.to_str().unwrap(),
+        ],
+        None,
+    );
+    assert_eq!(out.code, 1, "stdout: {}", out.stdout);
+    assert!(out.stderr.contains("pin skew"), "{}", out.stderr);
+    assert!(out.stderr.contains(PIN_REV), "{}", out.stderr);
+    assert!(out.stderr.contains(PIN_OTHER), "{}", out.stderr);
+}
+
+#[test]
+fn pins_expect_mismatch_fails() {
+    let cargo = tmpfile("pins-expect-cargo.lock", &pin_cargo_lock(PIN_REV));
+    let out = run(
+        &[
+            "pins",
+            "--cargo-lock",
+            cargo.to_str().unwrap(),
+            "--expect",
+            PIN_OTHER,
+        ],
+        None,
+    );
+    assert_eq!(out.code, 1, "stdout: {}", out.stdout);
+    assert!(out.stderr.contains("pin skew"), "{}", out.stderr);
+}
+
+#[test]
+fn pins_unpinned_inputs_fail() {
+    // A Cargo.lock with no git-sourced component-test crates has no pin
+    // to gate on (e.g. everything [patch]ed to a path).
+    let cargo = tmpfile(
+        "pins-unpinned-cargo.lock",
+        "version = 4\n\n[[package]]\nname = \"component-test-sdk\"\nversion = \"0.1.0\"\n",
+    );
+    let out = run(&["pins", "--cargo-lock", cargo.to_str().unwrap()], None);
+    assert_eq!(out.code, 1);
+    assert!(
+        out.stderr.contains("nothing is rev-pinned"),
+        "{}",
+        out.stderr
+    );
+
+    // A JS lock that never names the package is a wiring error, not a pass.
+    let cargo = tmpfile("pins-nojs-cargo.lock", &pin_cargo_lock(PIN_REV));
+    let js = tmpfile("pins-nojs.yaml", "importers:\n  .:\n    dependencies: {}\n");
+    let out = run(
+        &[
+            "pins",
+            "--cargo-lock",
+            cargo.to_str().unwrap(),
+            "--js-lock",
+            js.to_str().unwrap(),
+        ],
+        None,
+    );
+    assert_eq!(out.code, 1);
+    assert!(
+        out.stderr
+            .contains("no rev pin found for @polymorph/component-test-js"),
+        "{}",
+        out.stderr
+    );
 }
