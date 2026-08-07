@@ -45,11 +45,14 @@ function runShard(workerUrl, config, shard, onRow) {
 }
 
 /**
- * Run every configured suite and report. `suites` entries carry the
- * browser-worker run message minus `shard` (moduleUrl, coreUrls,
- * importsUrl, contextUrl?, env?, missing?, caseTimeoutMs?) plus
- * `suite` (the results identity) and `target`. `jobs` defaults to the
- * capped hardware parallelism; pass 1 for sequential corpora.
+ * Run every configured suite and report, keyed by `target` — the one
+ * identity unique per run (several targets may run one suite, e.g. a
+ * plain and a delegated composition of the same corpus). `suites`
+ * entries carry the browser-worker run message minus `shard`
+ * (moduleUrl, coreUrls, importsUrl, contextUrl?, env?, missing?,
+ * caseTimeoutMs?) plus `suite` (the results identity in the envelope)
+ * and `target`. `jobs` defaults to the capped hardware parallelism;
+ * pass 1 for sequential corpora.
  */
 export async function runSuitesInPage({ workerUrl, suites, jobs }) {
   const pool = jobs ?? workerCount(navigator.hardwareConcurrency ?? 4);
@@ -68,7 +71,7 @@ export async function runSuitesInPage({ workerUrl, suites, jobs }) {
       );
       const events = shards.flatMap((s) => s.events);
       events.sort((a, b) => a.index - b.index);
-      out[suite] = {
+      out[target] = {
         lines: [
           JSON.stringify(envelope(target, suite)),
           ...events.map((e) => JSON.stringify(e.event)),
