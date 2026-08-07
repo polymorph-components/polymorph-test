@@ -18,6 +18,10 @@
 //!       One-rev-everywhere gate for downstream pin sets (#54): the
 //!       component-test-* crates in Cargo.lock and the JS facade's
 //!       npm/pnpm pin must agree on a single commit.
+//!   pins bump <rev> [--cargo-toml Cargo.toml]...
+//!             [--package-json package.json]... [--workflow ci.yml]...
+//!       The write half of the gate (#60): rewrite the declared pins
+//!       in place and print the lockfile-regeneration follow-ups.
 
 mod junit;
 mod pins;
@@ -40,7 +44,9 @@ fn usage() -> String {
      component-test emit junit [--lock tests.lock] \
      [--results target=path.jsonl]... [-o results.xml]\n       \
      component-test pins --cargo-lock Cargo.lock \
-     [--js-lock lockfile]... [--expect rev]"
+     [--js-lock lockfile]... [--expect rev]\n       \
+     component-test pins bump <rev> [--cargo-toml Cargo.toml]... \
+     [--package-json package.json]... [--workflow ci.yml]..."
         .into()
 }
 
