@@ -123,6 +123,11 @@ runs:
           cargo install -q --locked --root "$INPUT_INSTALL_ROOT" \
             --git "$PIN_URL" --rev "$PIN_REV" "${missing[@]}"
         fi
+        # The install-root contract shared with the canonical local
+        # recipe (actions/README.md): the stamp names the installed
+        # rev, so a `just`-side bootstrap running after this action
+        # recognizes the install instead of repeating it.
+        printf '%s' "$PIN_REV" > "$INPUT_INSTALL_ROOT/.rev"
 
     - name: Hold every declared pin to the Cargo.lock revision
       shell: bash
