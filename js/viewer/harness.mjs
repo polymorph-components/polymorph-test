@@ -9,6 +9,8 @@
 // Browser-safe by construction: no Node builtins; callers supply the
 // core-wasm bytes and the transpiled suite module.
 
+import { Context } from "./context.js";
+
 export const TAGS_SECTION = "component-test:tags@0.1";
 
 /** Custom sections named `wanted` from a core wasm module's bytes. */
@@ -249,4 +251,64 @@ export function mergeCounts(parts) {
 /** The worker-pool size for a machine (capped: instances are heavy). */
 export function workerCount(available) {
   return Math.max(1, Math.min(available ?? 1, 8));
+}
+
+/**
+ * Run one suite's whole case loop and emit a complete results-JSONL
+ * stream: envelope, one serialized event per case, terminator. The
+ * sequential-driver shape shared by the consumers' Node legs and
+ * browser workers; pool topologies compose [`runCases`] +
+ * [`mergeCounts`] directly instead.
+ *
+ * Browser-safe: the caller supplies instantiation and I/O.
+ *
+ * - `newTests`: async () => the suite's tests interface on a *fresh*
+ *   instance. Called once for the census and — with `freshCases`, the
+ *   default — once per case: JSPI attempts cannot be cancelled, so a
+ *   timed-out case's instance may be wedged mid-suspension, and a
+ *   fresh instance per case also contains trap poisoning.
+ * - `suiteName` may be the kebab-case transpile name; the envelope
+ *   normalizes to the lockfile identity.
+ * - `emit(line, index?)` receives each JSONL line (the envelope and
+ *   terminator carry no index).
+ * - `Context` defaults to the upstream provider; a driver with its own
+ *   diagnostic transport passes its class.
+ *
+ * Returns [`runCases`]' counts. Throws when the census is empty (an
+ * empty selection is a run error, per the results contract).
+ */
+export async function runSuiteJsonl({
+  newTests,
+  tagsOf,
+  target,
+  suiteName,
+  missing = [],
+  only,
+  shard,
+  emit,
+  caseTimeoutMs,
+  freshCases = true,
+  Context: ContextClass = Context,
+  log,
+}) {
+  emit(JSON.stringify(envelope(target, suiteName)));
+  const counts = await runCases({
+    cases: await (await newTests()).all(),
+    Context: ContextClass,
+    tagsOf,
+    missing,
+    only,
+    shard,
+    emit: (event, index) => {
+      emit(JSON.stringify(event), index);
+      log?.(`${event.case} … ${event.status}`);
+    },
+    caseTimeoutMs,
+    ...(freshCases ? { freshCases: async () => (await newTests()).all() } : {}),
+  });
+  if (counts.total === 0) {
+    throw new Error("suite enumerated zero cases (empty selection is a run error)");
+  }
+  emit('{"segment-end":true}');
+  return counts;
 }

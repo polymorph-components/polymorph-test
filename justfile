@@ -226,10 +226,11 @@ verify-viewer: viewer-build
         "$tmp/tests.lock" examples/aggregate/targets.toml \
         "$tmp/native.jsonl" "$tmp/sim.jsonl"
 
-# The shared consumer glue (import binding, envelope normalization):
-# plain node, no wasm.
+# The shared consumer glue (import binding, envelope normalization,
+# the suite-runner loop, the node driver helpers): plain node, no wasm.
 verify-imports:
     node js/viewer/imports.test.mjs
+    node js/node-runner.test.mjs
 
 # Serve the viewer over the repository root (demo fixtures + transpiled
 # suites resolve by relative path): http://127.0.0.1:8123/
