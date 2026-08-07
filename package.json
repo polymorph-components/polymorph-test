@@ -9,11 +9,17 @@
   "files": [
     "js/viewer/harness.mjs",
     "js/viewer/context.js",
-    "js/viewer/worker.mjs"
+    "js/viewer/imports.mjs",
+    "js/viewer/worker.mjs",
+    "js/jco-transpile.mjs"
   ],
   "exports": {
     "./harness": "./js/viewer/harness.mjs",
     "./context": "./js/viewer/context.js",
+    "./imports": "./js/viewer/imports.mjs",
     "./worker": "./js/viewer/worker.mjs"
+  },
+  "bin": {
+    "component-test-jco-transpile": "./js/jco-transpile.mjs"
   }
 }

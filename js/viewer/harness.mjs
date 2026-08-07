@@ -82,12 +82,17 @@ export function applies(tags, missing) {
   );
 }
 
-/** The results-JSONL envelope line for one target × suite run. */
+/**
+ * The results-JSONL envelope line for one target × suite run. The
+ * suite name is normalized to the lockfile identity — the wasm file
+ * stem, underscores — so callers can pass the kebab-case package name
+ * as-is.
+ */
 export function envelope(target, suite) {
   return {
     "component-test-results": "0.1",
     target,
-    suite: { name: suite },
+    suite: { name: suite.replaceAll("-", "_") },
     run: { segment: 0 },
   };
 }
