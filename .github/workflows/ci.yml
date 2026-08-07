@@ -103,3 +103,49 @@ jobs:
           fail_on_failure: false
           require_tests: true
           annotate_only: true
+
+  # Dogfoods actions/setup (the #56 consumer bootstrap): a synthetic
+  # consumer Cargo.lock pins this very commit, the action installs the
+  # tools from the checkout (source-path), and its pins gate must hold
+  # the fixture to that rev. Asserts the advertised outputs and bin
+  # names on top.
+  actions-setup-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: actions-setup-smoke
+          cache-all-crates: true
+
+      - name: Synthesize a consumer Cargo.lock pinned to this commit
+        run: |
+          mkdir -p "$RUNNER_TEMP/consumer"
+          cat > "$RUNNER_TEMP/consumer/Cargo.lock" <<EOF
+          version = 4
+
+          [[package]]
+          name = "component-test-sdk"
+          version = "0.1.0"
+          source = "git+https://github.com/polymorph-components/polymorph-test?rev=${{ github.sha }}#${{ github.sha }}"
+          EOF
+
+      - name: Run the setup action from source
+        id: setup
+        uses: ./actions/setup
+        with:
+          cargo-lock: ${{ runner.temp }}/consumer/Cargo.lock
+          install-root: ${{ runner.temp }}/consumer/ct-tools
+          source-path: .
+
+      - name: Assert outputs and binaries
+        run: |
+          test "${{ steps.setup.outputs.rev }}" = "${{ github.sha }}"
+          test -x "${{ steps.setup.outputs.bin }}/component-test"
+          test -x "${{ steps.setup.outputs.bin }}/ct-runner"
