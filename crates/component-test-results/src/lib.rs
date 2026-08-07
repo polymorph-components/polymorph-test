@@ -84,6 +84,26 @@ pub struct RunInfo {
 }
 
 impl Envelope {
+    /// A stream header with the format defaults: current version,
+    /// segment 0, `"tags"` scheduling (the strict gate). Fields are
+    /// public — set provenance (`suite.artifact_sha256`, `run.id`, …)
+    /// directly on the value. Exists so producers stop hand-assembling
+    /// the struct and silently diverging on the defaults.
+    pub fn new(target: impl Into<String>, suite_name: impl Into<String>) -> Self {
+        Envelope {
+            version: RESULTS_VERSION.to_string(),
+            target: target.into(),
+            suite: SuiteInfo {
+                name: suite_name.into(),
+                ..SuiteInfo::default()
+            },
+            run: RunInfo {
+                scheduling: Some("tags".to_string()),
+                ..RunInfo::default()
+            },
+        }
+    }
+
     /// Did the producer apply tag scheduling? Anything except an
     /// explicit `"none"` counts as scheduled — unknown future
     /// vocabulary defaults to the strict gate.
@@ -329,9 +349,202 @@ pub fn fold_jsonl<S: AsRef<str>>(stream: &str, selected: &[S]) -> anyhow::Result
     })
 }
 
+/// Fold role-labelled result sets from one multi-instance run (a
+/// two-party pair, an N-way mesh) into one event per case.
+///
+/// - **Worst status wins**: fail > not-reached > skipped > everything
+///   else; ties go to the earlier role, and case order is the first
+///   reporting role's stream order (later-role-only cases append in
+///   their role's order).
+/// - **Details and diagnostics are role-labelled** so a red cell names
+///   the side that failed: the winner's first, the other non-passing
+///   roles' appended in role order.
+/// - A case only one role reported passes through **unmodified** — a
+///   single report is not a disagreement to label.
+/// - `diagnostics_complete` ANDs across roles; `duration_ms` is the
+///   max reported.
+pub fn fold_roles<S: AsRef<str>>(roles: &[(S, Vec<CaseResult>)]) -> Vec<CaseResult> {
+    fn rank(status: Status) -> u8 {
+        match status {
+            Status::Fail => 3,
+            Status::NotReached => 2,
+            Status::Skipped => 1,
+            _ => 0,
+        }
+    }
+
+    // (role index, result) per case, in first-report order.
+    let mut order: Vec<String> = Vec::new();
+    let mut by_case: BTreeMap<String, Vec<(usize, CaseResult)>> = BTreeMap::new();
+    for (idx, (_, results)) in roles.iter().enumerate() {
+        for r in results {
+            let entry = by_case.entry(r.case.clone()).or_default();
+            if entry.is_empty() {
+                order.push(r.case.clone());
+            }
+            entry.push((idx, r.clone()));
+        }
+    }
+
+    let mut out = Vec::new();
+    for case in order {
+        let mut reports = by_case.remove(&case).unwrap_or_default();
+        if reports.len() == 1 {
+            out.push(reports.remove(0).1);
+            continue;
+        }
+        // Stable max: strictly-greater keeps the earliest of a tie.
+        let win_pos = reports.iter().enumerate().fold(0, |best, (i, (_, r))| {
+            if rank(r.status) > rank(reports[best].1.status) {
+                i
+            } else {
+                best
+            }
+        });
+        let (win_idx, mut winner) = reports.remove(win_pos);
+        let winner_role = roles[win_idx].0.as_ref();
+
+        if rank(winner.status) > 0 {
+            let mut detail = format!(
+                "{winner_role}: {}",
+                winner.detail.as_deref().unwrap_or(winner.status.word())
+            );
+            for (idx, r) in &reports {
+                if rank(r.status) > 0 {
+                    detail.push_str(&format!(
+                        "; {}: {}",
+                        roles[*idx].0.as_ref(),
+                        r.detail.as_deref().unwrap_or(r.status.word())
+                    ));
+                }
+            }
+            winner.detail = Some(detail);
+        }
+
+        let mut diagnostics: Vec<String> = winner
+            .diagnostics
+            .iter()
+            .map(|d| format!("{winner_role}: {d}"))
+            .collect();
+        for (idx, r) in &reports {
+            diagnostics.extend(
+                r.diagnostics
+                    .iter()
+                    .map(|d| format!("{}: {d}", roles[*idx].0.as_ref())),
+            );
+        }
+        winner.diagnostics = diagnostics;
+        winner.diagnostics_complete =
+            winner.diagnostics_complete && reports.iter().all(|(_, r)| r.diagnostics_complete);
+        winner.duration_ms = reports
+            .iter()
+            .filter_map(|(_, r)| r.duration_ms)
+            .chain(winner.duration_ms)
+            .max();
+        out.push(winner);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn role_case(case: &str, status: Status, detail: Option<&str>) -> CaseResult {
+        CaseResult {
+            case: case.into(),
+            status,
+            provenance: None,
+            detail: detail.map(Into::into),
+            seed: None,
+            duration_ms: None,
+            diagnostics: Vec::new(),
+            diagnostics_complete: true,
+        }
+    }
+
+    #[test]
+    fn envelope_new_carries_the_format_defaults() {
+        let e = Envelope::new("wasmtime/pair", "suite_ct");
+        assert_eq!(e.version, RESULTS_VERSION);
+        assert_eq!(e.run.segment, 0);
+        assert_eq!(e.run.scheduling.as_deref(), Some("tags"));
+        assert!(e.scheduled());
+        assert_eq!(e.suite.name, "suite_ct");
+        assert!(e.suite.artifact_sha256.is_none());
+    }
+
+    #[test]
+    fn fold_roles_worst_status_wins_with_role_labels() {
+        let offerer = vec![role_case("pair/echo", Status::Pass, None)];
+        let answerer = vec![role_case("pair/echo", Status::Fail, Some("boom"))];
+        let folded = fold_roles(&[("offerer", offerer), ("answerer", answerer)]);
+        assert_eq!(folded.len(), 1);
+        assert_eq!(folded[0].status, Status::Fail);
+        // The winner's label leads even when the winner is a later role.
+        assert_eq!(folded[0].detail.as_deref(), Some("answerer: boom"));
+    }
+
+    #[test]
+    fn fold_roles_both_failing_names_both_sides() {
+        let offerer = vec![role_case("pair/echo", Status::NotReached, None)];
+        let answerer = vec![role_case("pair/echo", Status::Fail, Some("boom"))];
+        let folded = fold_roles(&[("offerer", offerer), ("answerer", answerer)]);
+        assert_eq!(
+            folded[0].detail.as_deref(),
+            Some("answerer: boom; offerer: not-reached")
+        );
+    }
+
+    #[test]
+    fn fold_roles_tie_goes_to_the_earlier_role() {
+        let offerer = vec![role_case("pair/echo", Status::Fail, Some("off"))];
+        let answerer = vec![role_case("pair/echo", Status::Fail, Some("ans"))];
+        let folded = fold_roles(&[("offerer", offerer), ("answerer", answerer)]);
+        assert_eq!(
+            folded[0].detail.as_deref(),
+            Some("offerer: off; answerer: ans")
+        );
+    }
+
+    #[test]
+    fn fold_roles_single_report_passes_through_unlabelled() {
+        let offerer = vec![role_case("pair/only-off", Status::Fail, Some("boom"))];
+        let folded = fold_roles(&[("offerer", offerer), ("answerer", Vec::new())]);
+        assert_eq!(folded[0].detail.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn fold_roles_order_is_first_report_order() {
+        let offerer = vec![
+            role_case("pair/a", Status::Pass, None),
+            role_case("pair/b", Status::Pass, None),
+        ];
+        let answerer = vec![
+            role_case("pair/b", Status::Pass, None),
+            role_case("pair/z", Status::Pass, None),
+        ];
+        let folded = fold_roles(&[("offerer", offerer), ("answerer", answerer)]);
+        let order: Vec<&str> = folded.iter().map(|r| r.case.as_str()).collect();
+        assert_eq!(order, vec!["pair/a", "pair/b", "pair/z"]);
+    }
+
+    #[test]
+    fn fold_roles_three_way_diagnostics_and_duration() {
+        let mut a = role_case("mesh/x", Status::Pass, None);
+        a.diagnostics = vec!["hello".into()];
+        a.duration_ms = Some(5);
+        let mut b = role_case("mesh/x", Status::Fail, Some("mid"));
+        b.duration_ms = Some(9);
+        b.diagnostics_complete = false;
+        let c = role_case("mesh/x", Status::Skipped, Some("late"));
+        let folded = fold_roles(&[("a", vec![a]), ("b", vec![b]), ("c", vec![c])]);
+        assert_eq!(folded[0].status, Status::Fail);
+        assert_eq!(folded[0].detail.as_deref(), Some("b: mid; c: late"));
+        assert_eq!(folded[0].diagnostics, vec!["a: hello".to_string()]);
+        assert!(!folded[0].diagnostics_complete);
+        assert_eq!(folded[0].duration_ms, Some(9));
+    }
 
     fn envelope() -> Envelope {
         Envelope {
