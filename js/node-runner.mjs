@@ -7,6 +7,10 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+// Browser-safe logic lives in the harness; re-exported here so node
+// drivers keep one import site.
+export { resolveTestsExport } from "./viewer/harness.mjs";
+
 /**
  * Compile a transpiled suite's core modules from `dir`, in name order:
  * `<prefix>.core*.wasm` when `prefix` is given (several suites may
@@ -32,20 +36,6 @@ export async function loadCoreModules(dir, prefix) {
     );
   }
   return { modules, coreBytes };
-}
-
-/**
- * The suite's `tests` interface from an instantiated component,
- * whichever spelling the transpile used. Throws with the instance's
- * export names when none matches.
- */
-export function resolveTestsExport(instance) {
-  const tests =
-    instance.tests ?? instance["polymorph:test/tests@0.1.0"] ?? instance["polymorph:test/tests"];
-  if (!tests) {
-    throw new Error(`suite instance exports no tests interface: ${Object.keys(instance)}`);
-  }
-  return tests;
 }
 
 /**

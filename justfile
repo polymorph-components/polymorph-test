@@ -231,6 +231,9 @@ verify-viewer: viewer-build
 verify-imports:
     node js/viewer/imports.test.mjs
     node js/node-runner.test.mjs
+    node js/browser-driver.test.mjs
+    node --check js/viewer/browser-worker.mjs
+    node --check js/viewer/page-runner.mjs
 
 # Serve the viewer over the repository root (demo fixtures + transpiled
 # suites resolve by relative path): http://127.0.0.1:8123/
