@@ -12,7 +12,9 @@ renamed repository still resolves), caches the install keyed on
 `(os, rev, rust-toolchain.toml)`, and runs the `component-test pins`
 gate over every declared lockfile — the one-rev-everywhere check. The
 Cargo.lock is the single source of truth; the action cannot be pointed
-at a different rev than the workspace builds against.
+at a different rev than the workspace builds against, and when the
+action itself is referenced by a 40-hex rev, a skewed `uses:` literal
+fails the run (branch/tag refs skip with a notice).
 
 ```yaml
 - uses: polymorph-components/polymorph-test/actions/setup@<rev>

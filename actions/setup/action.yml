@@ -51,6 +51,12 @@ runs:
       env:
         INPUT_CARGO_LOCK: ${{ inputs.cargo-lock }}
         INPUT_INSTALL_ROOT: ${{ inputs.install-root }}
+        # The ref this action was referenced by (`uses: ...@<ref>`):
+        # when it is a pinned revision it must be the Cargo.lock
+        # revision — the same skew the pins gate polices, applied to
+        # the action's own literal. Branch/tag/local refs skip with a
+        # notice.
+        ACTION_REF: ${{ github.action_ref }}
       run: |
         set -euo pipefail
         src=$(grep -m1 -A2 '^name = "component-test-sdk"' "$INPUT_CARGO_LOCK" | grep '^source = "git+' || true)
@@ -60,6 +66,14 @@ runs:
         fi
         url=$(printf '%s' "$src" | sed -E 's/^source = "git\+([^?]+)\?.*/\1/')
         rev=$(printf '%s' "$src" | grep -oE '[0-9a-f]{40}' | head -n1)
+        if printf '%s' "${ACTION_REF:-}" | grep -qE '^[0-9a-f]{40}$'; then
+          if [ "$ACTION_REF" != "$rev" ]; then
+            echo "::error title=component-test setup::action ref $ACTION_REF is not the Cargo.lock pin $rev (bump the uses: ref with the pin)" >&2
+            exit 1
+          fi
+        else
+          echo "::notice title=component-test setup::action ref '${ACTION_REF:-<empty>}' is not a pinned revision; skipping the ref check"
+        fi
         {
           echo "rev=$rev"
           echo "url=$url"
