@@ -9,7 +9,7 @@ _default:
     @just --list --unsorted
 
 # Everything: host tests, component builds, all four verification paths.
-all: build test test-wasm lock-check verify-embed verify-compose verify-node verify-pipeline verify-aggregate verify-viewer verify-emit
+all: build test test-wasm lock-check verify-embed verify-compose verify-node verify-pipeline verify-aggregate verify-viewer verify-imports verify-emit
 
 # CI's native job: formatting, clippy, host tests, WIT validation.
 host-checks: fmt-check lint test wit-check
@@ -225,6 +225,11 @@ verify-viewer: viewer-build
     node --experimental-wasm-jspi js/viewer/selftest.mjs \
         "$tmp/tests.lock" examples/aggregate/targets.toml \
         "$tmp/native.jsonl" "$tmp/sim.jsonl"
+
+# The shared consumer glue (import binding, envelope normalization):
+# plain node, no wasm.
+verify-imports:
+    node js/viewer/imports.test.mjs
 
 # Serve the viewer over the repository root (demo fixtures + transpiled
 # suites resolve by relative path): http://127.0.0.1:8123/
