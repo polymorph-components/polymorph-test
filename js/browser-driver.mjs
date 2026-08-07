@@ -95,19 +95,20 @@ function serve({ repoRoot, html, routes }) {
   });
 }
 
-function launchBrowser(playwright, engine, executablePath, timeout) {
+function launchBrowser(playwright, engine, executablePath, timeout, launchArgs) {
   if (engine === "firefox") {
     // Gecko's JSPI pref: the transpiled guests suspend on JSPI, which
     // Firefox has not yet shipped by default.
     return playwright.firefox.launch({
       headless: true,
       timeout,
+      args: launchArgs,
       firefoxUserPrefs: {
         "javascript.options.wasm_js_promise_integration": true,
       },
     });
   }
-  const options = { headless: true, timeout };
+  const options = { headless: true, timeout, args: launchArgs };
   if (executablePath !== undefined) options.executablePath = executablePath;
   return playwright[engine].launch(options);
 }
@@ -171,6 +172,8 @@ export async function findChrome(env = process.env) {
  * @param {string} options.html  The harness document served at "/".
  * @param {function} [options.routes]  `(req, res) => boolean` claiming a
  *   request before the static paths (proxies, health checks).
+ * @param {string[]} [options.launchArgs]  Extra browser launch arguments
+ *   (sandbox flags, certificate-trust provisioning for a test PKI).
  * @param {number} options.stallTimeoutMs  Max quiet time between heartbeats.
  * @param {number} [options.launchTimeoutMs]
  * @param {number} [options.loadTimeoutMs]
@@ -184,12 +187,13 @@ export async function runPageHarness({
   repoRoot,
   html,
   routes,
+  launchArgs,
   stallTimeoutMs,
   launchTimeoutMs = 120_000,
   loadTimeoutMs = 60_000,
 }) {
   const [browser, server] = await Promise.all([
-    launchBrowser(playwright, engine, executablePath, launchTimeoutMs),
+    launchBrowser(playwright, engine, executablePath, launchTimeoutMs, launchArgs),
     serve({ repoRoot, html, routes }),
   ]);
   try {
