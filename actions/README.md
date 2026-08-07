@@ -59,6 +59,23 @@ _ct-tools:
 (Append `--js-lock <lockfile>` for each JS lockfile the repo carries;
 drop `component-test-runner` if the runner is embedded as a library.)
 
+### Transpile stamps
+
+Consumers guard their jco transpiles with a content stamp so `just`
+runs skip redundant work. The stamp must cover the suite artifacts
+**and the jco tree's `package.json`**: the transpile flags and the
+pinned transpiler both live there, and either changing must invalidate
+the generated tree — a stamp keyed on the wasm alone has demonstrably
+shipped stale output across a flag change.
+
+```just
+stamp=$(cat "{{suite}}" jco/package.json | sha256sum | cut -d' ' -f1)
+if [ "$(cat jco/generated/.stamp 2>/dev/null || true)" != "$stamp" ]; then
+    (cd jco && npm run --silent transpile)
+    printf '%s' "$stamp" > jco/generated/.stamp
+fi
+```
+
 ## `aggregate`
 
 Validates per-target results-JSONL against a lockfile + target
