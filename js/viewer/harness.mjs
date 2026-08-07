@@ -254,6 +254,20 @@ export function workerCount(available) {
 }
 
 /**
+ * The suite's `tests` interface from an instantiated component,
+ * whichever spelling the transpile used. Throws with the instance's
+ * export names when none matches.
+ */
+export function resolveTestsExport(instance) {
+  const tests =
+    instance.tests ?? instance["polymorph:test/tests@0.1.0"] ?? instance["polymorph:test/tests"];
+  if (!tests) {
+    throw new Error(`suite instance exports no tests interface: ${Object.keys(instance)}`);
+  }
+  return tests;
+}
+
+/**
  * Run one suite's whole case loop and emit a complete results-JSONL
  * stream: envelope, one serialized event per case, terminator. The
  * sequential-driver shape shared by the consumers' Node legs and
