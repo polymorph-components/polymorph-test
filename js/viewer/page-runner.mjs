@@ -45,21 +45,23 @@ function runShard(workerUrl, config, shard, onRow) {
 }
 
 /**
- * Run every configured suite and report, keyed by `target` — the one
- * identity unique per run (several targets may run one suite, e.g. a
- * plain and a delegated composition of the same corpus). `suites`
- * entries carry the browser-worker run message minus `shard`
+ * Run every configured suite and report, keyed by each entry's `key`
+ * (default: its `target`). Neither `suite` nor `target` is unique on
+ * its own across consumers — one suite may run as several targets (a
+ * plain and a delegated composition), and one target may run several
+ * suites (a main and a signing corpus) — so the caller owns the key.
+ * `suites` entries carry the browser-worker run message minus `shard`
  * (moduleUrl, coreUrls, importsUrl, contextUrl?, env?, missing?,
- * caseTimeoutMs?) plus `suite` (the results identity in the envelope)
- * and `target`. `jobs` defaults to the capped hardware parallelism;
- * pass 1 for sequential corpora.
+ * only?, caseTimeoutMs?) plus `suite` (the results identity in the
+ * envelope) and `target`. `jobs` defaults to the capped hardware
+ * parallelism; pass 1 for sequential corpora.
  */
 export async function runSuitesInPage({ workerUrl, suites, jobs }) {
   const pool = jobs ?? workerCount(navigator.hardwareConcurrency ?? 4);
   let rows = 0;
   try {
     const out = {};
-    for (const { suite, target, ...config } of suites) {
+    for (const { suite, target, key = target, ...config } of suites) {
       beat(`suite ${suite}: ${pool} workers`);
       const shards = await Promise.all(
         Array.from({ length: pool }, (_, index) =>
@@ -71,7 +73,7 @@ export async function runSuitesInPage({ workerUrl, suites, jobs }) {
       );
       const events = shards.flatMap((s) => s.events);
       events.sort((a, b) => a.index - b.index);
-      out[target] = {
+      out[key] = {
         lines: [
           JSON.stringify(envelope(target, suite)),
           ...events.map((e) => JSON.stringify(e.event)),

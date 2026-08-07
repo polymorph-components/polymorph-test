@@ -39,6 +39,7 @@ self.onmessage = async ({ data }) => {
     contextUrl,
     env = [],
     missing = [],
+    only,
     shard,
     caseTimeoutMs,
   } = data;
@@ -67,6 +68,7 @@ self.onmessage = async ({ data }) => {
       Context,
       tagsOf,
       missing,
+      only,
       shard,
       caseTimeoutMs,
       emit: (event, index) => self.postMessage({ kind: "event", index, event }),
