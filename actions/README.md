@@ -28,6 +28,11 @@ red. The action adds presentation, never verdict.
     # ref the action was referenced by (presentation and validation
     # semantics cannot skew).
     cli: target/ct-tools/bin/component-test
+    # Optional but recommended: with the consumer's Cargo.lock, the
+    # action fails when the `uses:` rev above skews from the lock's
+    # component-test pin — replacing the hand-rolled workflow grep
+    # guard. Branch/tag refs skip the check with a notice.
+    cargo-lock: Cargo.lock
 ```
 
 ## Not here (yet)
