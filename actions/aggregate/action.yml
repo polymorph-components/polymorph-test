@@ -30,10 +30,41 @@ inputs:
       same ref the action itself was referenced by (requires a Rust
       toolchain on the runner).
     default: ""
+  cargo-lock:
+    description: >
+      Path to the consumer's Cargo.lock. When set and this action is
+      referenced by a 40-hex revision, the action fails if that
+      revision differs from the lock's component-test pin — the
+      workflow-side skew guard, absorbed (a `uses:` ref cannot
+      interpolate, so nothing else polices it). A branch or tag ref
+      skips the check with a notice.
+    default: ""
 
 runs:
   using: composite
   steps:
+    - name: Check the action ref against the Cargo.lock pin
+      if: inputs.cargo-lock != ''
+      shell: bash
+      env:
+        INPUT_CARGO_LOCK: ${{ inputs.cargo-lock }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: |
+        set -euo pipefail
+        rev=$(grep -m1 -A2 '^name = "component-test-sdk"' "$INPUT_CARGO_LOCK" | grep '^source = "git+' | grep -oE '[0-9a-f]{40}' | head -n1 || true)
+        if [ -z "$rev" ]; then
+          echo "::error title=component-test aggregate::no component-test-sdk git pin in $INPUT_CARGO_LOCK" >&2
+          exit 1
+        fi
+        if ! printf '%s' "${ACTION_REF:-}" | grep -qE '^[0-9a-f]{40}$'; then
+          echo "::notice title=component-test aggregate::action ref '${ACTION_REF:-<empty>}' is not a pinned revision; skipping the Cargo.lock pin check"
+          exit 0
+        fi
+        if [ "$ACTION_REF" != "$rev" ]; then
+          echo "::error title=component-test aggregate::action ref $ACTION_REF is not the Cargo.lock pin $rev (bump the uses: ref with the pin)" >&2
+          exit 1
+        fi
+
     - name: Resolve the component-test CLI
       shell: bash
       env:
