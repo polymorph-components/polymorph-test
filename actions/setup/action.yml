@@ -1,0 +1,132 @@
+name: component-test setup
+description: >
+  Install the component-test tools (`component-test`, `ct-runner`) at
+  the revision the consumer's Cargo.lock pins, with a rev-keyed cache,
+  and hold every declared pin to that revision with `component-test
+  pins`. The Cargo.lock is the single source of truth: the action
+  derives the revision from the `component-test-sdk` entry
+  (crate-name-anchored, so a renamed repository still resolves), so a
+  pin bump cannot half-apply.
+
+inputs:
+  cargo-lock:
+    description: Path to the consumer's Cargo.lock.
+    default: Cargo.lock
+  js-locks:
+    description: >
+      JS lockfiles to include in the pins gate (package-lock.json /
+      pnpm-lock.yaml), one path per line. Optional.
+    default: ""
+  tools:
+    description: >
+      Space-separated crates to install from this repository.
+    default: component-test-cli component-test-runner
+  install-root:
+    description: >
+      `cargo install --root`; binaries land under `<install-root>/bin`.
+    default: target/ct-tools
+  source-path:
+    description: >
+      When set, install from this checkout path (`cargo install
+      --path <source-path>/crates/<tool>`) instead of `--git` at the
+      pinned revision, and skip the cache. For testing the action and
+      for local-override parity with the consumers' justfile recipes.
+      The pins gate still runs against the Cargo.lock revision.
+    default: ""
+
+outputs:
+  rev:
+    description: The revision derived from the Cargo.lock.
+    value: ${{ steps.pin.outputs.rev }}
+  bin:
+    description: Directory holding the installed binaries.
+    value: ${{ steps.pin.outputs.bin }}
+
+runs:
+  using: composite
+  steps:
+    - name: Derive the pinned revision from the Cargo.lock
+      id: pin
+      shell: bash
+      env:
+        INPUT_CARGO_LOCK: ${{ inputs.cargo-lock }}
+        INPUT_INSTALL_ROOT: ${{ inputs.install-root }}
+      run: |
+        set -euo pipefail
+        src=$(grep -m1 -A2 '^name = "component-test-sdk"' "$INPUT_CARGO_LOCK" | grep '^source = "git+' || true)
+        if [ -z "$src" ]; then
+          echo "::error title=component-test setup::no component-test-sdk git pin in $INPUT_CARGO_LOCK" >&2
+          exit 1
+        fi
+        url=$(printf '%s' "$src" | sed -E 's/^source = "git\+([^?]+)\?.*/\1/')
+        rev=$(printf '%s' "$src" | grep -oE '[0-9a-f]{40}' | head -n1)
+        {
+          echo "rev=$rev"
+          echo "url=$url"
+          echo "bin=$INPUT_INSTALL_ROOT/bin"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Cache the installed tools
+      if: inputs.source-path == ''
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.install-root }}
+        key: component-test-tools-${{ runner.os }}-${{ steps.pin.outputs.rev }}-${{ hashFiles('rust-toolchain.toml') }}
+
+    - name: Install the tools
+      shell: bash
+      env:
+        INPUT_TOOLS: ${{ inputs.tools }}
+        INPUT_INSTALL_ROOT: ${{ inputs.install-root }}
+        INPUT_SOURCE_PATH: ${{ inputs.source-path }}
+        PIN_URL: ${{ steps.pin.outputs.url }}
+        PIN_REV: ${{ steps.pin.outputs.rev }}
+      run: |
+        set -euo pipefail
+        # Bin name per crate (cargo install exposes the bin, not the
+        # crate name).
+        bin_of() {
+          case "$1" in
+            component-test-cli) echo component-test ;;
+            component-test-runner) echo ct-runner ;;
+            *) echo "$1" ;;
+          esac
+        }
+        missing=()
+        for tool in $INPUT_TOOLS; do
+          [ -x "$INPUT_INSTALL_ROOT/bin/$(bin_of "$tool")" ] || missing+=("$tool")
+        done
+        if [ "${#missing[@]}" -eq 0 ]; then
+          echo "tools already present in $INPUT_INSTALL_ROOT/bin (cache hit)"
+          exit 0
+        fi
+        if [ -n "$INPUT_SOURCE_PATH" ]; then
+          for tool in "${missing[@]}"; do
+            cargo install -q --locked --root "$INPUT_INSTALL_ROOT" \
+              --path "$INPUT_SOURCE_PATH/crates/$tool"
+          done
+        else
+          cargo install -q --locked --root "$INPUT_INSTALL_ROOT" \
+            --git "$PIN_URL" --rev "$PIN_REV" "${missing[@]}"
+        fi
+
+    - name: Hold every declared pin to the Cargo.lock revision
+      shell: bash
+      env:
+        INPUT_CARGO_LOCK: ${{ inputs.cargo-lock }}
+        INPUT_JS_LOCKS: ${{ inputs.js-locks }}
+        INPUT_INSTALL_ROOT: ${{ inputs.install-root }}
+        PIN_REV: ${{ steps.pin.outputs.rev }}
+      run: |
+        set -euo pipefail
+        cli="$INPUT_INSTALL_ROOT/bin/component-test"
+        if [ ! -x "$cli" ]; then
+          echo "::error title=component-test setup::the pins gate needs the component-test CLI; keep component-test-cli in the tools input" >&2
+          exit 1
+        fi
+        args=(pins --cargo-lock "$INPUT_CARGO_LOCK" --expect "$PIN_REV")
+        while IFS= read -r line; do
+          line="${line#"${line%%[![:space:]]*}"}"
+          [ -n "$line" ] && args+=(--js-lock "$line")
+        done <<< "$INPUT_JS_LOCKS"
+        "$cli" "${args[@]}" > /dev/null
