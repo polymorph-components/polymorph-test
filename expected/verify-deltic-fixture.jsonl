@@ -1,10 +1,10 @@
-{"component-test-results":"0.1","target":"deltic/deno","suite":{"name":"fixture_suite","artifact-sha256":"<sha256>"},"run":{"segment":0,"scheduling":"none"}}
-{"case":"fixture/trap/before","status":"pass","provenance":"returned","diagnostics":["before the storm"]}
+{"component-test-results":"0.1","target":"deltic/deno","suite":{"name":"fixture_suite","artifact-sha256":"<sha256>"},"run":{"segment":0,"scheduling":"tags"}}
+{"case":"fixture/trap/before","status":"pass","provenance":"returned","diagnostics-complete":true,"diagnostics":["before the storm"]}
 {"case":"fixture/trap/boom","status":"fail","provenance":"trap","detail":"trap: guest trapped: unreachable","diagnostics-complete":false,"diagnostics":["about to trap"]}
-{"case":"fixture/trap/after","status":"pass","provenance":"returned","diagnostics":["still alive in a fresh instance"]}
-{"case":"fixture/hsm/attest","status":"pass","provenance":"returned","diagnostics":["exercising hsm attestation"]}
-{"case":"fixture/hsm/declined","status":"pass","provenance":"returned","diagnostics":["asserting hsm is declined, not half-served"]}
-{"case":"fixture/nested/deep/leaf","status":"pass","provenance":"returned","diagnostics":["two levels down"]}
-{"case":"fixture/gen/tc1","status":"pass","provenance":"returned","diagnostics":["generated case 1"]}
-{"case":"fixture/gen/tc2","status":"pass","provenance":"returned","diagnostics":["generated case 2"]}
+{"case":"fixture/trap/after","status":"pass","provenance":"returned","diagnostics-complete":true,"diagnostics":["still alive in a fresh instance"]}
+{"case":"fixture/hsm/attest","status":"not-applicable","detail":"hsm","diagnostics-complete":true}
+{"case":"fixture/hsm/declined","status":"pass","provenance":"returned","diagnostics-complete":true,"diagnostics":["asserting hsm is declined, not half-served"]}
+{"case":"fixture/nested/deep/leaf","status":"pass","provenance":"returned","diagnostics-complete":true,"diagnostics":["two levels down"]}
+{"case":"fixture/gen/tc1","status":"pass","provenance":"returned","diagnostics-complete":true,"diagnostics":["generated case 1"]}
+{"case":"fixture/gen/tc2","status":"pass","provenance":"returned","diagnostics-complete":true,"diagnostics":["generated case 2"]}
 {"segment-end":true}

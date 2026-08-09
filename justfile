@@ -108,18 +108,24 @@ verify-node: build
 # transpile step, no generated tree, and no engine flag — deltic is a
 # runtime linker; the contract's async exports run on the callback ABI
 # under stock Deno). Pinned to a deltic release by
-# js/runner-deltic/{deno.json,fetch-translator.ts}, with deno.lock
-# enforced via --frozen. Feature-blind like the composed runner
-# (scheduling: "none"): the fixture leg executes the tag-gated cases
-# instead of scheduling them out, so it has its own goldens; the sample
-# legs reuse Path 2/3's human golden and Path 2/4's fold golden.
+# js/runner-deltic/{deno.json,fetch-deltic.ts}, with deno.lock enforced
+# via --frozen. Tag scheduling comes from the suite's own embedded
+# inventory (deltic#25): the fixture leg runs --missing hsm exactly like
+# Paths 1/4 and schedules the hsm case out as not-applicable; the sample
+# legs reuse Path 2/3's human golden and Path 2/4's fold golden. The
+# selftest leg drives the BROWSER worker's engine path (js/runner-deltic/
+# engine.mjs + the shared harness.mjs case loop) over the pinned embedder
+# bundle under plain node — no --experimental-wasm-jspi: the callback ABI
+# needs no engine flag, which is the browser-leg premise.
 verify-deltic: build
     #!/usr/bin/env bash
     set -euo pipefail
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-    translator=$(deno run --allow-read=js/runner-deltic,target --allow-write=target \
+    fetch() { deno run --allow-read=js/runner-deltic,target --allow-write=target \
         --allow-net=github.com,objects.githubusercontent.com,release-assets.githubusercontent.com \
-        js/runner-deltic/fetch-translator.ts)
+        js/runner-deltic/fetch-deltic.ts --asset "$1"; }
+    translator=$(fetch translator)
+    bundle=$(fetch embedder)
     run() { deno run --allow-read=target --config js/runner-deltic/deno.json --frozen \
         js/runner-deltic/runner.ts "$@" --translator "$translator"; }
     norm() { sed -E -e 's/"artifact-sha256":"[0-9a-f]{64}"/"artifact-sha256":"<sha256>"/' \
@@ -135,13 +141,16 @@ verify-deltic: build
         > "$tmp/sample-fold.txt" && code=0 || code=$?
     test "$code" -eq 1
     diff -u expected/verify-pipeline-sample-fold.txt "$tmp/sample-fold.txt"
-    run {{release_dir}}/fixture_suite.wasm --jsonl > "$tmp/fixture.jsonl" && code=0 || code=$?
+    run {{release_dir}}/fixture_suite.wasm --jsonl --missing hsm \
+        > "$tmp/fixture.jsonl" && code=0 || code=$?
     test "$code" -eq 1
     norm < "$tmp/fixture.jsonl" | diff -u expected/verify-deltic-fixture.jsonl -
     fold components/fixture-suite/tests.lock < "$tmp/fixture.jsonl" \
         > "$tmp/fixture-fold.txt" && code=0 || code=$?
     test "$code" -eq 1
     diff -u expected/verify-deltic-fixture-fold.txt "$tmp/fixture-fold.txt"
+    node js/runner-deltic/selftest.mjs "$bundle" "$translator" \
+        {{release_dir}}/sample_suite.wasm {{release_dir}}/fixture_suite.wasm
     echo "verify-deltic: output matches expected/ (incl. shared human + fold goldens)"
 
 # Path 4: inventory + results pipeline (lock check, JSONL fold). The

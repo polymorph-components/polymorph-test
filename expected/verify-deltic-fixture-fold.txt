@@ -1,5 +1,6 @@
 FAIL: fixture/trap/boom — trap: guest trapped: unreachable
     diag: about to trap
     (diagnostics truncated)
+N/A: fixture/hsm/attest — hsm
 
-8 results (terminated): 1 fail, 7 pass
+8 results (terminated): 1 fail, 1 not-applicable, 6 pass

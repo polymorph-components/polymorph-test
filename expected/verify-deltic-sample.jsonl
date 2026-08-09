@@ -1,5 +1,5 @@
-{"component-test-results":"0.1","target":"deltic/deno","suite":{"name":"sample_suite","artifact-sha256":"<sha256>"},"run":{"segment":0,"scheduling":"none"}}
-{"case":"sample/math/add","status":"pass","provenance":"returned","diagnostics":["computing 2 + 2","got 4"]}
-{"case":"sample/math/mul","status":"fail","provenance":"returned","detail":"6 * 9: expected 42, got 54","diagnostics":["computing 6 * 9","got 54, expecting the ultimate answer"]}
-{"case":"sample/token/attest","status":"skipped","provenance":"returned","detail":"token unavailable at run time; asserted attestation fails cleanly (no hang, no partial attestation)","diagnostics":["probing for hardware token","token unavailable; asserting clean error"]}
+{"component-test-results":"0.1","target":"deltic/deno","suite":{"name":"sample_suite","artifact-sha256":"<sha256>"},"run":{"segment":0,"scheduling":"tags"}}
+{"case":"sample/math/add","status":"pass","provenance":"returned","diagnostics-complete":true,"diagnostics":["computing 2 + 2","got 4"]}
+{"case":"sample/math/mul","status":"fail","provenance":"returned","detail":"6 * 9: expected 42, got 54","diagnostics-complete":true,"diagnostics":["computing 6 * 9","got 54, expecting the ultimate answer"]}
+{"case":"sample/token/attest","status":"skipped","provenance":"returned","detail":"token unavailable at run time; asserted attestation fails cleanly (no hang, no partial attestation)","diagnostics-complete":true,"diagnostics":["probing for hardware token","token unavailable; asserting clean error"]}
 {"segment-end":true}
