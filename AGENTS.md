@@ -86,7 +86,9 @@ with copies; symlinks require `core.symlinks` on Windows.
 ## Toolchain
 
 wasmtime 47 (`-W component-model-async -S p3`), wac-cli 0.10, wit-bindgen
-0.60, jco 1.26 (via npx), Node 24 (`--experimental-wasm-jspi`), Rust
+0.60, jco 1.26 (via npx), Node 24 (`--experimental-wasm-jspi`), deno 2.9
+(deltic runner leg; deltic itself is release-pinned — see
+`js/runner-deltic/README.md`), Rust
 target `wasm32-wasip2`, wasm-tools (WIT validation), just (task
 runner). Known sharp edges are catalogued in `docs/findings.md` — read
 it before fighting the toolchain; your bug is probably finding #5, #6,
@@ -118,8 +120,8 @@ cargo build --target wasm32-wasip2 --release \
   -p sample-suite -p provider -p runner-cli -p fixture-suite
 ```
 
-Full verification matrix (run whatever your change touches; all four
-before committing anything cross-cutting):
+Full verification matrix (run whatever your change touches; all of
+them before committing anything cross-cutting):
 
 1. **Host-embed runner** (also exercises tags scheduling + trap path):
    ```sh
@@ -137,6 +139,12 @@ before committing anything cross-cutting):
 3. **jco-node runner** (see `js/runner-node/README.md`): transpile the
    suite alone with `--async-mode jspi` and drive from Node. Same
    verdicts.
+3b. **deltic-deno runner** (see `js/runner-deltic/README.md`): drive
+   the suite directly under deltic on stock Deno — no transpile step,
+   no engine flag; release-pinned in `js/runner-deltic/`. Same sample
+   verdicts (shared human + fold goldens); scheduling is feature-blind,
+   so the fixture leg executes tag-gated cases and diffs its own
+   goldens (`expected/verify-deltic-*`).
 4. **Inventory + results pipeline**:
    ```sh
    cargo run -q -p component-test-cli -- lock \

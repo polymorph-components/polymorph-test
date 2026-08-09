@@ -1,0 +1,127 @@
+// The deltic runner leg (Path 3b): drive an L1 suite under deltic — a
+// runtime linker, so there is NO transpile step and NO engine flag; the
+// contract's async exports run on the callback ABI under stock Deno.
+//
+// Mirrors runner-node/runner-host-provider.mjs's topology (runner-is-
+// provider: the host supplies test-context) and, in human mode, its exact
+// output format — `expected/verify-run-sample.txt` is shared verbatim with
+// the composed-cli and jco-node legs. With --jsonl it emits canonical L4
+// results JSONL instead (deltic's runSuite mirrors js/viewer/harness.mjs
+// semantics; schema authority: crates/component-test-results).
+//
+//   deno run --allow-read=target --config js/runner-deltic/deno.json \
+//     --frozen js/runner-deltic/runner.ts <suite.wasm> \
+//     --translator <translator_shim.wasm> [--jsonl] [--target NAME]
+//
+// The deltic release pin lives in deno.json + fetch-translator.ts (which
+// see, for the bump procedure).
+
+import { Translator } from "@deltic/runtime/shim";
+import { runSuite } from "@deltic/ct-runner";
+import { wasiShims } from "@deltic/wasi-shims";
+
+interface Cli {
+  suitePath: string;
+  translator: string;
+  jsonl: boolean;
+  target: string;
+}
+
+function parseArgs(argv: string[]): Cli {
+  const positional: string[] = [];
+  let translator: string | undefined;
+  let jsonl = false;
+  let target = "deltic/deno";
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    switch (a) {
+      case "--translator":
+        translator = argv[++i];
+        break;
+      case "--jsonl":
+        jsonl = true;
+        break;
+      case "--target":
+        target = argv[++i];
+        break;
+      default:
+        if (a.startsWith("--")) throw new Error(`unknown flag '${a}'`);
+        positional.push(a);
+    }
+  }
+  if (positional.length !== 1 || translator === undefined) {
+    console.error(
+      "usage: runner.ts <suite.wasm> --translator <translator_shim.wasm> " +
+        "[--jsonl] [--target NAME]",
+    );
+    Deno.exit(2);
+  }
+  return { suitePath: positional[0], translator, jsonl, target };
+}
+
+interface CaseEvent {
+  case: string;
+  status: string;
+  detail?: string;
+  diagnostics?: string[];
+}
+
+/** Render one case event in the shared human format (the byte-exact
+ * contract of expected/verify-run-sample.txt, established by
+ * components/runner-cli and runner-node/runner-host-provider.mjs). */
+function renderHuman(e: CaseEvent): string {
+  const lines = [`test ${e.case} ...`];
+  for (const d of e.diagnostics ?? []) lines.push(`    diag: ${d}`);
+  switch (e.status) {
+    case "pass":
+      lines.push(`test ${e.case}: PASS`);
+      break;
+    case "fail":
+      lines.push(`test ${e.case}: FAIL: ${e.detail ?? ""}`);
+      break;
+    case "skipped":
+      lines.push(`test ${e.case}: SKIP: ${e.detail ?? ""}`);
+      break;
+    default:
+      throw new Error(`unknown case status '${e.status}' (schema drift?)`);
+  }
+  return lines.join("\n");
+}
+
+function suiteNameFrom(path: string): string {
+  const base = path.split("/").pop() ?? path;
+  return base.replace(/\.component\.wasm$|\.wasm$/, "");
+}
+
+async function main() {
+  const cli = parseArgs(Deno.args);
+  const componentBytes = await Deno.readFile(cli.suitePath);
+  const translator = await Translator.create(await Deno.readFile(cli.translator));
+  const { plan, adapters } = translator.translate(componentBytes);
+
+  const lines: string[] = [];
+  const counts = await runSuite({ plan, componentBytes, adapters }, {
+    imports: wasiShims(),
+    target: cli.target,
+    suiteName: suiteNameFrom(cli.suitePath),
+    emit: (line: string) => lines.push(line),
+  });
+
+  if (cli.jsonl) {
+    console.log(lines.join("\n"));
+  } else {
+    for (const line of lines.slice(1, -1)) {
+      console.log(renderHuman(JSON.parse(line) as CaseEvent));
+    }
+    console.log(
+      `\nresult: ${counts.passed} passed, ${counts.failed} failed, ` +
+        `${counts.skipped} skipped, ${counts.total} total`,
+    );
+  }
+
+  // Empty selection is a run error: zero cases must not exit green
+  // (runner-host-provider.mjs's exit discipline, shared by every leg).
+  Deno.exit(counts.failed === 0 && counts.total > 0 ? 0 : 1);
+}
+
+await main();

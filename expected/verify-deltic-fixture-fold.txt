@@ -1,0 +1,5 @@
+FAIL: fixture/trap/boom — trap: guest trapped: unreachable
+    diag: about to trap
+    (diagnostics truncated)
+
+8 results (terminated): 1 fail, 7 pass
