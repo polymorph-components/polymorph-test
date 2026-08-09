@@ -130,6 +130,11 @@ export function envelope(target, suite) {
  * `freshCases` (a timed-out shared instance may be wedged
  * mid-suspension, poisoning every later case).
  *
+ * `name()` may be Promise-shaped: deltic's embedder exports are
+ * uniformly async (contracts/embedder-api.md "Functions and async"),
+ * while jco sync-lifted exports return plain values; awaiting a plain
+ * value is a no-op, so this loop is host-agnostic.
+ *
  * @param {object} options
  * @param {Array} options.cases  `tests.all()` from the transpiled suite.
  * @param {new (onDiagnostic: (msg: string) => void) => object} options.Context
@@ -158,7 +163,7 @@ export async function runCases({
   for (const [caseIndex, testCase] of cases.entries()) {
     if (caseIndex % shardCount !== shardIndex) continue;
     total++;
-    const name = String(testCase.name());
+    const name = String(await testCase.name());
     if (only && !name.includes(only)) continue;
     const tags = tagsOf(name);
     if (tags === undefined) {
@@ -175,7 +180,13 @@ export async function runCases({
     let executed = testCase;
     if (freshCases) {
       const fresh = await freshCases();
-      executed = fresh.find((c) => String(c.name()) === name);
+      executed = undefined;
+      for (const c of fresh) {
+        if (String(await c.name()) === name) {
+          executed = c;
+          break;
+        }
+      }
       if (!executed) {
         throw new Error(`case ${name} vanished on re-enumeration`);
       }

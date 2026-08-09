@@ -139,12 +139,16 @@ them before committing anything cross-cutting):
 3. **jco-node runner** (see `js/runner-node/README.md`): transpile the
    suite alone with `--async-mode jspi` and drive from Node. Same
    verdicts.
-3b. **deltic-deno runner** (see `js/runner-deltic/README.md`): drive
-   the suite directly under deltic on stock Deno — no transpile step,
-   no engine flag; release-pinned in `js/runner-deltic/`. Same sample
-   verdicts (shared human + fold goldens); scheduling is feature-blind,
-   so the fixture leg executes tag-gated cases and diffs its own
-   goldens (`expected/verify-deltic-*`).
+3b. **deltic runner + browser leg** (see `js/runner-deltic/README.md`):
+   drive the suite directly under deltic — no transpile step, no engine
+   flag; release-pinned in `js/runner-deltic/`. Same sample verdicts
+   (shared human + fold goldens); tag scheduling from the suite's own
+   embedded inventory (fixture leg runs `--missing hsm` like Paths 1/4,
+   lane goldens in `expected/verify-deltic-*`). The browser worker
+   (`browser-worker.mjs`, drop-in for `page-runner.mjs` via `workerUrl`)
+   shares `harness.mjs`'s case loop; `selftest.mjs` gates that engine
+   path under plain node — no JSPI flag — as `verify-deltic`'s last
+   leg.
 4. **Inventory + results pipeline**:
    ```sh
    cargo run -q -p component-test-cli -- lock \

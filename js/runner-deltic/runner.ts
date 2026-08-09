@@ -13,7 +13,7 @@
 //     --frozen js/runner-deltic/runner.ts <suite.wasm> \
 //     --translator <translator_shim.wasm> [--jsonl] [--target NAME]
 //
-// The deltic release pin lives in deno.json + fetch-translator.ts (which
+// The deltic release pin lives in deno.json + fetch-deltic.ts (which
 // see, for the bump procedure).
 
 import { Translator } from "@deltic/runtime/shim";
@@ -25,6 +25,7 @@ interface Cli {
   translator: string;
   jsonl: boolean;
   target: string;
+  missing?: string[];
 }
 
 function parseArgs(argv: string[]): Cli {
@@ -32,6 +33,7 @@ function parseArgs(argv: string[]): Cli {
   let translator: string | undefined;
   let jsonl = false;
   let target = "deltic/deno";
+  let missing: string[] | undefined;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
@@ -44,6 +46,9 @@ function parseArgs(argv: string[]): Cli {
       case "--target":
         target = argv[++i];
         break;
+      case "--missing":
+        missing = argv[++i].split(",").filter((f) => f !== "");
+        break;
       default:
         if (a.startsWith("--")) throw new Error(`unknown flag '${a}'`);
         positional.push(a);
@@ -52,11 +57,11 @@ function parseArgs(argv: string[]): Cli {
   if (positional.length !== 1 || translator === undefined) {
     console.error(
       "usage: runner.ts <suite.wasm> --translator <translator_shim.wasm> " +
-        "[--jsonl] [--target NAME]",
+        "[--jsonl] [--target NAME] [--missing f1,f2,...]",
     );
     Deno.exit(2);
   }
-  return { suitePath: positional[0], translator, jsonl, target };
+  return { suitePath: positional[0], translator, jsonl, target, missing };
 }
 
 interface CaseEvent {
@@ -82,6 +87,12 @@ function renderHuman(e: CaseEvent): string {
     case "skipped":
       lines.push(`test ${e.case}: SKIP: ${e.detail ?? ""}`);
       break;
+    case "not-applicable":
+      // Tag scheduling (deltic ct-runner #25): the case was scheduled out
+      // for this target, not executed. No shared human golden constrains
+      // this line (the composed/jco legs never see tags).
+      lines.push(`test ${e.case}: N/A: ${e.detail ?? ""}`);
+      break;
     default:
       throw new Error(`unknown case status '${e.status}' (schema drift?)`);
   }
@@ -104,6 +115,7 @@ async function main() {
     imports: wasiShims(),
     target: cli.target,
     suiteName: suiteNameFrom(cli.suitePath),
+    missing: cli.missing,
     emit: (line: string) => lines.push(line),
   });
 
@@ -113,9 +125,13 @@ async function main() {
     for (const line of lines.slice(1, -1)) {
       console.log(renderHuman(JSON.parse(line) as CaseEvent));
     }
+    // The result line stays byte-exact with the shared golden when nothing
+    // was scheduled out (expected/verify-run-sample.txt); the n/a clause
+    // appears only for tag-scheduled runs, which have no shared golden.
+    const na = counts.na > 0 ? `, ${counts.na} n/a` : "";
     console.log(
       `\nresult: ${counts.passed} passed, ${counts.failed} failed, ` +
-        `${counts.skipped} skipped, ${counts.total} total`,
+        `${counts.skipped} skipped${na}, ${counts.total} total`,
     );
   }
 
