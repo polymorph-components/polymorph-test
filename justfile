@@ -8,8 +8,8 @@ wasmtime_flags := "-W component-model-async -S p3"
 _default:
     @just --list --unsorted
 
-# Everything: host tests, component builds, all four verification paths.
-all: build test test-wasm lock-check verify-embed verify-compose verify-node verify-pipeline verify-aggregate verify-viewer verify-imports verify-emit
+# Everything: host tests, component builds, all verification paths.
+all: build test test-wasm lock-check verify-embed verify-compose verify-node verify-deltic verify-pipeline verify-aggregate verify-viewer verify-imports verify-emit
 
 # CI's native job: formatting, clippy, host tests, WIT validation.
 host-checks: fmt-check lint test wit-check
@@ -103,6 +103,46 @@ verify-node: build
     test "$code" -eq 1
     diff -u ../../expected/verify-run-sample.txt <(printf '%s\n' "$out")
     echo "verify-node: output matches expected/"
+
+# Path 3b: deltic-deno runner (runner-is-provider, like Path 3, but no
+# transpile step, no generated tree, and no engine flag — deltic is a
+# runtime linker; the contract's async exports run on the callback ABI
+# under stock Deno). Pinned to a deltic release by
+# js/runner-deltic/{deno.json,fetch-translator.ts}, with deno.lock
+# enforced via --frozen. Feature-blind like the composed runner
+# (scheduling: "none"): the fixture leg executes the tag-gated cases
+# instead of scheduling them out, so it has its own goldens; the sample
+# legs reuse Path 2/3's human golden and Path 2/4's fold golden.
+verify-deltic: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    translator=$(deno run --allow-read=js/runner-deltic,target --allow-write=target \
+        --allow-net=github.com,objects.githubusercontent.com,release-assets.githubusercontent.com \
+        js/runner-deltic/fetch-translator.ts)
+    run() { deno run --allow-read=target --config js/runner-deltic/deno.json --frozen \
+        js/runner-deltic/runner.ts "$@" --translator "$translator"; }
+    norm() { sed -E -e 's/"artifact-sha256":"[0-9a-f]{64}"/"artifact-sha256":"<sha256>"/' \
+        -e 's/,"duration-ms":[0-9]+//g'; }
+    fold() { cargo run -q -p component-test-cli -- fold "$@"; }
+    out=$(run {{release_dir}}/sample_suite.wasm) && code=0 || code=$?
+    test "$code" -eq 1
+    diff -u expected/verify-run-sample.txt <(printf '%s\n' "$out")
+    run {{release_dir}}/sample_suite.wasm --jsonl > "$tmp/sample.jsonl" && code=0 || code=$?
+    test "$code" -eq 1
+    norm < "$tmp/sample.jsonl" | diff -u expected/verify-deltic-sample.jsonl -
+    fold components/sample-suite/tests.lock < "$tmp/sample.jsonl" \
+        > "$tmp/sample-fold.txt" && code=0 || code=$?
+    test "$code" -eq 1
+    diff -u expected/verify-pipeline-sample-fold.txt "$tmp/sample-fold.txt"
+    run {{release_dir}}/fixture_suite.wasm --jsonl > "$tmp/fixture.jsonl" && code=0 || code=$?
+    test "$code" -eq 1
+    norm < "$tmp/fixture.jsonl" | diff -u expected/verify-deltic-fixture.jsonl -
+    fold components/fixture-suite/tests.lock < "$tmp/fixture.jsonl" \
+        > "$tmp/fixture-fold.txt" && code=0 || code=$?
+    test "$code" -eq 1
+    diff -u expected/verify-deltic-fixture-fold.txt "$tmp/fixture-fold.txt"
+    echo "verify-deltic: output matches expected/ (incl. shared human + fold goldens)"
 
 # Path 4: inventory + results pipeline (lock check, JSONL fold). The
 # fixture leg exercises the JSONL wire shape for trap provenance,

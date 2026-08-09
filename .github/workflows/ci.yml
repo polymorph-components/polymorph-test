@@ -35,10 +35,10 @@ jobs:
       - name: Host checks
         run: just host-checks
 
-  # The full verification matrix: component builds, all four execution
+  # The full verification matrix: component builds, all execution
   # paths (host-embed runner, composed wasi:cli runner under wasmtime,
-  # jco runner under Node/JSPI, inventory + results pipeline), lockfile
-  # drift checks.
+  # jco runner under Node/JSPI, deltic runner under stock Deno,
+  # inventory + results pipeline), lockfile drift checks.
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -60,6 +60,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
+
+      - name: Install Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.9.5"
 
       - name: Install tools
         run: ./scripts/setup.sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
