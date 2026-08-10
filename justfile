@@ -9,7 +9,7 @@ _default:
     @just --list --unsorted
 
 # Everything: host tests, component builds, all verification paths.
-all: build test test-wasm lock-check verify-embed verify-compose verify-node verify-deltic verify-pipeline verify-aggregate verify-viewer verify-imports verify-emit
+all: build test test-wasm lock-check verify-embed verify-compose verify-deltic verify-pipeline verify-aggregate verify-viewer verify-imports verify-emit
 
 # CI's native job: formatting, clippy, host tests, WIT validation.
 host-checks: fmt-check lint test wit-check
@@ -87,24 +87,7 @@ verify-compose: build
     diff -u expected/verify-pipeline-sample-fold.txt "$tmp/fold.txt"
     echo "verify-compose: output matches expected/ (incl. JSONL + cross-runner fold)"
 
-# Path 3: jco-node runner (suite transpiled alone; runner-is-provider).
-verify-node: build
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cd js/runner-node
-    npm install --silent
-    npx --yes @bytecodealliance/jco transpile \
-        ../../{{release_dir}}/sample_suite.wasm \
-        --name suite \
-        --async-mode jspi \
-        --map 'polymorph:test/test-context@0.1.0=../context.js' \
-        -o suite > /dev/null
-    out=$(node --experimental-wasm-jspi runner-host-provider.mjs) && code=0 || code=$?
-    test "$code" -eq 1
-    diff -u ../../expected/verify-run-sample.txt <(printf '%s\n' "$out")
-    echo "verify-node: output matches expected/"
-
-# Path 3b: deltic-deno runner (runner-is-provider, like Path 3, but no
+# Path 3: deltic-deno runner (runner-is-provider, like Path 3, but no
 # transpile step, no generated tree, and no engine flag — deltic is a
 # runtime linker; the contract's async exports run on the callback ABI
 # under stock Deno). Pinned to a deltic release by
