@@ -46,6 +46,18 @@ flag), asserting the documented sample/fixture verdicts, trap
 containment, tag scheduling, and striping partition equality; it runs
 as `verify-deltic`'s last leg.
 
+Suites that import a SUT host module (`polymorph:websocket`,
+`polymorph:webcrypto`, …) use `worker-main.mjs` (exported as
+`./deltic-worker-main`) instead of the stock worker: the downstream
+repo bundles one worker entry — the deltic engine surface, the message
+loop, and its own host module, resolved through one import map — and
+passes `workerMain({ deltic, suiteImports })` its inlined engine and an
+import-record factory. One bundle means one embedder module instance,
+which is what keeps `instanceof WitError` true across the host-module
+boundary; workers resolve no import maps, so this is the only sound
+shape. The stock `browser-worker.mjs` is `workerMain()` with the
+bundleUrl-loading defaults.
+
 ## Pinning
 
 deltic is pinned to a release tag in **two** places, cross-checked at

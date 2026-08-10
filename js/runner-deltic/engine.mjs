@@ -17,9 +17,15 @@
  * @param {Uint8Array} input.translatorBytes  deltic-translator-shim.wasm.
  * @param {Uint8Array} input.suiteBytes  The suite COMPONENT wasm.
  * @param {[string, string][]} [input.env]  wasi:cli environment pairs.
+ * @param {object} [input.hostImports]  SUT host-import record fragments
+ *   (interface id -> implementation), merged over the engine's wasi +
+ *   test-context imports. MUST be built against the same embedder module
+ *   instance as `bundle` (one WitError class; see worker-main.mjs).
  * @returns {Promise<{newTests: () => Promise<object>, Context, tagsOf}>}
  */
-export async function loadSuite({ bundle, translatorBytes, suiteBytes, env = [] }) {
+export async function loadSuite(
+  { bundle, translatorBytes, suiteBytes, env = [], hostImports = {} },
+) {
   const deltic = typeof bundle === "string" ? await import(bundle) : bundle;
   const translator = await deltic.Translator.create(translatorBytes);
   const { plan, adapters } = translator.translate(suiteBytes);
@@ -28,6 +34,7 @@ export async function loadSuite({ bundle, translatorBytes, suiteBytes, env = [] 
   const imports = {
     ...deltic.wasiShims({ cli: { env: Object.fromEntries(env) } }),
     ...deltic.testContextImportRecord(),
+    ...hostImports,
   };
 
   const newTests = async () => {

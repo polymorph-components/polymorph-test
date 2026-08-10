@@ -14,6 +14,7 @@
     "js/viewer/page-runner.mjs",
     "js/node-runner.mjs",
     "js/browser-driver.mjs",
+    "js/runner-deltic/worker-main.mjs",
     "js/runner-deltic/browser-worker.mjs",
     "js/runner-deltic/engine.mjs"
   ],
@@ -24,6 +25,7 @@
     "./node-runner": "./js/node-runner.mjs",
     "./browser-driver": "./js/browser-driver.mjs",
     "./deltic-worker": "./js/runner-deltic/browser-worker.mjs",
-    "./deltic-engine": "./js/runner-deltic/engine.mjs"
+    "./deltic-engine": "./js/runner-deltic/engine.mjs",
+    "./deltic-worker-main": "./js/runner-deltic/worker-main.mjs"
   }
 }
