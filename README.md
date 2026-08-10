@@ -17,7 +17,7 @@ together is described in [ARCHITECTURE.md](ARCHITECTURE.md). Layout:
 [`crates/`](crates/) (host-side Rust: core model, formats, results
 schema, guest SDK, CLI, host-embed runner), [`components/`](components/)
 (guest components: reference provider, composed CLI runner core, sample
-and fixture suites), [`js/`](js/) (Node runner via jco),
+and fixture suites), [`js/`](js/) (deltic runner leg + browser harness),
 [`examples/compose/`](examples/compose/) (composition walkthrough),
 [`examples/aggregate/`](examples/aggregate/) (cross-target aggregation
 walkthrough), [`docs/findings.md`](docs/findings.md) (toolchain
@@ -260,7 +260,7 @@ WPT, `go test`, LLVM lit) is tracked in the issues.
   decline cases).
 - The reference `test-context` provider component.
 - Runners: `wasi:cli`, `wasi:http` (served UI + remote API), in-browser via
-  jco, native embedding with a libtest-mimic frontend.
+  deltic (runtime-linked), native embedding with a libtest-mimic frontend.
 - Semver-compatible-linking verification for the `test-context` growth path;
   custom-section survival through composition tooling.
 - Inventory lockfiles (names + tags) and the update workflow, including

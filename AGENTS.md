@@ -61,7 +61,8 @@ components/           guest components (build with --target wasm32-wasip2)
   drift-fixture            broken by design: raw registration, drift check
   zero-gen-fixture         broken by design: zero-row decline generator
   hang-fixture             broken by design: CPU spin + async wedge (#45)
-js/runner-node/       Node runner via jco (runner-is-provider topology)
+js/runner-deltic/     deltic runner leg: CLI, browser shard worker, node
+                      selftest (runner-is-provider topology; release-pinned)
 actions/              composite GitHub Actions for consumers (#14):
                       aggregate (matrix -> job summary, findings ->
                       annotations, gate passthrough)
@@ -86,11 +87,14 @@ with copies; symlinks require `core.symlinks` on Windows.
 ## Toolchain
 
 wasmtime 47 (`-W component-model-async -S p3`), wac-cli 0.10, wit-bindgen
-0.60, jco 1.26 (via npx), Node 24 (`--experimental-wasm-jspi`), deno 2.9
-(deltic runner leg; deltic itself is release-pinned — see
+0.60, Node 24 (plain — the selftest legs; no engine flags anywhere:
+deltic's callback ABI needs no JSPI), deno 2.9 (deltic asset fetching +
+runner leg; deltic itself is release-pinned — see
 `js/runner-deltic/README.md`), Rust
 target `wasm32-wasip2`, wasm-tools (WIT validation), just (task
-runner). Known sharp edges are catalogued in `docs/findings.md` — read
+runner). jco is GONE from this repo (the deltic migration's Phase 4
+cutover); its findings in `docs/findings.md` are historical. Known
+sharp edges are catalogued in `docs/findings.md` — read
 it before fighting the toolchain; your bug is probably finding #5, #6,
 or #13.
 
@@ -136,10 +140,7 @@ them before committing anything cross-cutting):
 2. **Composed runner** (see `examples/compose/README.md`): bundle via
    `wac compose`, plug via `wac plug`, run under `wasmtime run -W
    component-model-async -S p3`. Same sample-suite verdicts.
-3. **jco-node runner** (see `js/runner-node/README.md`): transpile the
-   suite alone with `--async-mode jspi` and drive from Node. Same
-   verdicts.
-3b. **deltic runner + browser leg** (see `js/runner-deltic/README.md`):
+3. **deltic runner + browser leg** (see `js/runner-deltic/README.md`):
    drive the suite directly under deltic — no transpile step, no engine
    flag; release-pinned in `js/runner-deltic/`. Same sample verdicts
    (shared human + fold goldens); tag scheduling from the suite's own
@@ -147,8 +148,10 @@ them before committing anything cross-cutting):
    lane goldens in `expected/verify-deltic-*`). The browser worker
    (`browser-worker.mjs`, drop-in for `page-runner.mjs` via `workerUrl`)
    shares `harness.mjs`'s case loop; `selftest.mjs` gates that engine
-   path under plain node — no JSPI flag — as `verify-deltic`'s last
-   leg.
+   path under plain node as `verify-deltic`'s last leg. (The jco-node
+   runner that used to be this path was deleted in the deltic
+   migration's Phase 4; `js/viewer/browser-worker.mjs` remains as
+   consumer-facing glue for transpiled-module layouts.)
 4. **Inventory + results pipeline**:
    ```sh
    cargo run -q -p component-test-cli -- lock \

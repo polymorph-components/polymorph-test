@@ -10,3 +10,4 @@ node_modules/
 # Viewer build products (transpiles of the wasm engines/suites)
 js/viewer/generated/
 js/viewer/suite/
+js/viewer/deltic/

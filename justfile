@@ -9,7 +9,7 @@ _default:
     @just --list --unsorted
 
 # Everything: host tests, component builds, all verification paths.
-all: build test test-wasm lock-check verify-embed verify-compose verify-node verify-deltic verify-pipeline verify-aggregate verify-viewer verify-imports verify-emit
+all: build test test-wasm lock-check verify-embed verify-compose verify-deltic verify-pipeline verify-aggregate verify-viewer verify-imports verify-emit
 
 # CI's native job: formatting, clippy, host tests, WIT validation.
 host-checks: fmt-check lint test wit-check
@@ -87,24 +87,7 @@ verify-compose: build
     diff -u expected/verify-pipeline-sample-fold.txt "$tmp/fold.txt"
     echo "verify-compose: output matches expected/ (incl. JSONL + cross-runner fold)"
 
-# Path 3: jco-node runner (suite transpiled alone; runner-is-provider).
-verify-node: build
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cd js/runner-node
-    npm install --silent
-    npx --yes @bytecodealliance/jco transpile \
-        ../../{{release_dir}}/sample_suite.wasm \
-        --name suite \
-        --async-mode jspi \
-        --map 'polymorph:test/test-context@0.1.0=../context.js' \
-        -o suite > /dev/null
-    out=$(node --experimental-wasm-jspi runner-host-provider.mjs) && code=0 || code=$?
-    test "$code" -eq 1
-    diff -u ../../expected/verify-run-sample.txt <(printf '%s\n' "$out")
-    echo "verify-node: output matches expected/"
-
-# Path 3b: deltic-deno runner (runner-is-provider, like Path 3, but no
+# Path 3: deltic-deno runner (runner-is-provider, like Path 3, but no
 # transpile step, no generated tree, and no engine flag — deltic is a
 # runtime linker; the contract's async exports run on the callback ABI
 # under stock Deno). Pinned to a deltic release by
@@ -246,18 +229,30 @@ emit-demo: build
 # --- viewer ------------------------------------------------------------
 
 # Build the viewer's engines: the viewer-aggregate component (the gate's
-# aggregation compiled to wasm, transpiled sync — no JSPI needed) and
-# the demo suite transpiles (JSPI: the contract's run is async).
+# aggregation compiled to wasm — runtime-linked by deltic in the page,
+# no transpile step) and the demo suites (component wasm, verbatim),
+# plus the pinned deltic assets copied beside the viewer so local serve
+# and Pages share one relative layout (js/viewer/deltic.mjs).
 viewer-build: build
+    #!/usr/bin/env bash
+    set -euo pipefail
     cargo build --release --target wasm32-wasip2 -p viewer-aggregate
-    cd js/viewer && npm install --silent && npm run --silent transpile \
-        && npm run --silent transpile:sample && npm run --silent transpile:fixture
+    fetch() { deno run --allow-read=js/runner-deltic,target --allow-write=target \
+        --allow-net=github.com,objects.githubusercontent.com,release-assets.githubusercontent.com \
+        js/runner-deltic/fetch-deltic.ts --asset "$1"; }
+    translator=$(fetch translator)
+    bundle=$(fetch embedder)
+    mkdir -p js/viewer/deltic js/viewer/generated js/viewer/suite
+    cp "$translator" "$bundle" js/viewer/deltic/
+    cp {{release_dir}}/viewer_aggregate.wasm js/viewer/generated/viewer-aggregate.wasm
+    cp {{release_dir}}/sample_suite.wasm {{release_dir}}/fixture_suite.wasm js/viewer/suite/
 
-# The viewer's drift gate: both engines under Node. The wasm aggregate
-# must reproduce the CLI gate's verdicts over the fixture pipeline, and
-# the shared harness must run the transpiled suites to the documented
-# verdicts (including striping partition equality). The page itself is
-# thin glue over these two engines plus worker plumbing.
+# The viewer's drift gate: the wasm aggregate under deltic (exactly the
+# page's instantiation) must reproduce the CLI gate's verdicts over the
+# fixture pipeline, plus the shared harness loop's gating adapters over
+# synthetic cases. Plain node — no JSPI flag anywhere. The suite-
+# execution legs live in verify-deltic's selftest. The page itself is
+# thin glue over these engines plus worker plumbing.
 verify-viewer: viewer-build
     #!/usr/bin/env bash
     set -euo pipefail
@@ -271,9 +266,12 @@ verify-viewer: viewer-build
     ct {{release_dir}}/fixture_suite.wasm --jsonl --target sim --missing hsm \
         > "$tmp/sim.jsonl" && code=0 || code=$?
     test "$code" -eq 1
-    node --experimental-wasm-jspi js/viewer/selftest.mjs \
+    node js/viewer/selftest.mjs \
         "$tmp/tests.lock" examples/aggregate/targets.toml \
-        "$tmp/native.jsonl" "$tmp/sim.jsonl"
+        "$tmp/native.jsonl" "$tmp/sim.jsonl" \
+        js/viewer/deltic/deltic-embedder.mjs \
+        js/viewer/deltic/deltic-translator-shim.wasm \
+        js/viewer/generated/viewer-aggregate.wasm
 
 # The shared consumer glue (import binding, envelope normalization,
 # the suite-runner loop, the node driver helpers): plain node, no wasm.

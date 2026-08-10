@@ -11,7 +11,7 @@
 // stream into a live table, and the finished run downloads as
 // results-JSONL or feeds straight into the Results pane.
 import { envelope, mergeCounts, workerCount } from "./harness.mjs";
-import { run as aggregate } from "./generated/viewer-aggregate.js";
+import { aggregateEngine, bundleUrl, translatorUrl } from "./deltic.mjs";
 
 const $ = (id) => document.getElementById(id);
 
@@ -94,11 +94,12 @@ $("btn-demo").onclick = async () => {
 
 $("btn-aggregate").onclick = renderAggregate;
 
-function renderAggregate() {
+async function renderAggregate() {
   let doc;
   try {
+    const aggregate = await aggregateEngine();
     doc = JSON.parse(
-      aggregate(state.lock, state.manifest, state.streams.map((s) => [s.target, s.text])),
+      await aggregate(state.lock, state.manifest, state.streams.map((s) => [s.target, s.text])),
     );
   } catch (err) {
     // Parse failures of the inputs themselves (not validation findings).
@@ -365,8 +366,14 @@ let liveRows = null; // last finished run: [{index, event}], sorted
 let liveMeta = null; // { target, suiteName }
 
 $("btn-run").onclick = async () => {
-  const suiteUrl = new URL($("live-url").value, location.href).href;
   const suiteName = $("live-name").value.trim();
+  // Directory URLs get the component's file name appended (cargo names
+  // it with underscores); a direct .wasm URL is used as-is.
+  const raw = $("live-url").value;
+  const suiteUrl = new URL(
+    raw.endsWith(".wasm") ? raw : `${raw.replace(/\/?$/, "/")}${suiteName.replaceAll("-", "_")}.wasm`,
+    location.href,
+  ).href;
   const missing = $("live-missing").value.split(",").map((s) => s.trim()).filter(Boolean);
   const jobs = workerCount(Number($("live-workers").value) || 1);
   const target = $("live-target").value.trim() || "native";
@@ -416,7 +423,10 @@ $("btn-run").onclick = async () => {
     const parts = await Promise.all(
       Array.from({ length: jobs }, (_, index) =>
         new Promise((resolve, reject) => {
-          const worker = new Worker(new URL("./worker.mjs", import.meta.url), { type: "module" });
+          const worker = new Worker(
+            new URL("../runner-deltic/browser-worker.mjs", import.meta.url),
+            { type: "module" },
+          );
           worker.onmessage = ({ data }) => {
             if (data.kind === "event") onEvent(data.index, data.event);
             else if (data.kind === "counts") {
@@ -431,7 +441,13 @@ $("btn-run").onclick = async () => {
             worker.terminate();
             reject(new Error(`worker (shard ${index}): ${e.message ?? e}`));
           };
-          worker.postMessage({ suiteUrl, suiteName, missing, shard: { index, count: jobs } });
+          worker.postMessage({
+            bundleUrl,
+            translatorUrl,
+            suiteUrl,
+            missing,
+            shard: { index, count: jobs },
+          });
         })
       ),
     );

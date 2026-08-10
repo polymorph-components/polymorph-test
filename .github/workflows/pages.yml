@@ -44,6 +44,11 @@ jobs:
         with:
           node-version: 24
 
+      - name: Install Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.9.5"
+
       - name: Install tools
         run: ./scripts/setup.sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
@@ -52,20 +57,20 @@ jobs:
 
       - name: Assemble the site
         # The tree mirrors the repository layout: the viewer resolves
-        # its engine and the demo fixtures by relative path (see
+        # its engines and the demo fixtures by relative path (see
         # js/viewer/README.md), so publishing preserves paths instead
-        # of flattening. The shim ships whole - its browser build's
-        # internal imports are relative within the package.
+        # of flattening. Everything is runtime-linked by deltic in the
+        # page — no transpiled trees, no shim node_modules.
         run: |
           set -euo pipefail
-          mkdir -p _site/js/viewer _site/components/fixture-suite _site/examples/aggregate _site/expected
+          mkdir -p _site/js/viewer _site/js/runner-deltic _site/components/fixture-suite _site/examples/aggregate _site/expected
           cp -r js/viewer/index.html js/viewer/app.mjs js/viewer/viewer.css \
-                js/viewer/harness.mjs js/viewer/context.js js/viewer/worker.mjs \
+                js/viewer/harness.mjs js/viewer/context.js js/viewer/deltic.mjs \
                 js/viewer/README.md js/viewer/generated js/viewer/suite \
+                js/viewer/deltic \
                 _site/js/viewer/
-          mkdir -p _site/js/viewer/node_modules/@bytecodealliance
-          cp -r js/viewer/node_modules/@bytecodealliance/preview2-shim \
-                _site/js/viewer/node_modules/@bytecodealliance/
+          cp js/runner-deltic/browser-worker.mjs js/runner-deltic/engine.mjs \
+                _site/js/runner-deltic/
           cp components/fixture-suite/tests.lock _site/components/fixture-suite/
           cp examples/aggregate/targets.toml _site/examples/aggregate/
           cp expected/verify-pipeline-fixture.jsonl _site/expected/
