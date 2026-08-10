@@ -26,7 +26,7 @@
 //
 // Run message and reply protocol are ./browser-worker.mjs's, unchanged:
 //   { bundleUrl?, translatorUrl, suiteUrl, env?, missing?, only?, shard?,
-//     caseTimeoutMs? }
+//     caseTimeoutMs?, freshCases? (default true) }
 //   -> { kind: "event", index, event } per case,
 //      { kind: "counts", counts } on completion,
 //      { kind: "error", error } on harness breakage.
@@ -71,6 +71,7 @@ export function workerMain({ deltic, suiteImports } = {}) {
       only,
       shard,
       caseTimeoutMs,
+      freshCases = true,
     } = data;
     try {
       const [translatorBytes, suiteBytes] = await Promise.all([
@@ -99,7 +100,11 @@ export function workerMain({ deltic, suiteImports } = {}) {
         shard,
         caseTimeoutMs,
         emit: (event, index) => self.postMessage({ kind: "event", index, event }),
-        freshCases: async () => (await newTests()).all(),
+        // `freshCases: false` reuses the census instance for the whole
+        // shard — the documented trade for corpora whose per-case fresh
+        // instances outrun the renderer's wasm-memory reservations (a
+        // trapped case then poisons the rest of the shard, loudly).
+        ...(freshCases ? { freshCases: async () => (await newTests()).all() } : {}),
       });
       self.postMessage({ kind: "counts", counts });
     } catch (err) {
