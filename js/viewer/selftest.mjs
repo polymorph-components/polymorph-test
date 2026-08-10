@@ -1,29 +1,55 @@
-// Node selftest for the viewer's two engines — the drift gate CI runs
+// Node selftest for the viewer's engines — the drift gate CI runs
 // (`just verify-viewer`):
 //
-// 1. Aggregation: the wasm-compiled viewer-aggregate component must
-//    reproduce the CLI gate's verdicts over the fixture pipeline
+// 1. Aggregation: the wasm-compiled viewer-aggregate COMPONENT, run
+//    under deltic exactly as the page runs it (js/viewer/deltic.mjs),
+//    must reproduce the CLI gate's verdicts over the fixture pipeline
 //    (same summary accounting, same expected-fail assessments).
-// 2. Live harness: harness.mjs must run the transpiled suites to the
-//    documented verdicts (sample: 1/1/1; fixture under --missing hsm:
-//    the trap fails, the decline passes, hsm rows are not-applicable).
+// 2. Gating-adapter options of the shared harness loop (#50):
+//    freshCases + caseTimeoutMs over synthetic cases.
 //
-// Usage: node --experimental-wasm-jspi selftest.mjs \
-//   <tests.lock> <targets.toml> <native.jsonl> <sim.jsonl>
+// The suite-execution half of the old selftest lives in
+// js/runner-deltic/selftest.mjs now — same harness.mjs loop, same
+// suites, deltic engine (verify-deltic's last leg). Plain `node`:
+// nothing here needs --experimental-wasm-jspi.
+//
+// Usage: node selftest.mjs <tests.lock> <targets.toml> <native.jsonl>
+//   <sim.jsonl> <deltic-embedder.mjs> <translator.wasm>
+//   <viewer-aggregate.wasm>
 import { readFileSync } from "node:fs";
-import { inventoryLookup, runCases, mergeCounts } from "./harness.mjs";
+import { pathToFileURL } from "node:url";
+import { mergeCounts, runCases } from "./harness.mjs";
 import { Context } from "./context.js";
-import { run as aggregate } from "./generated/viewer-aggregate.js";
 
-const [lockPath, manifestPath, nativePath, simPath] = process.argv.slice(2);
+const [lockPath, manifestPath, nativePath, simPath, bundlePath, translatorPath, aggregatePath] =
+  process.argv.slice(2);
 const fail = (msg) => {
   console.error(`selftest: ${msg}`);
   process.exit(1);
 };
+if (!aggregatePath) {
+  fail(
+    "usage: selftest.mjs <tests.lock> <targets.toml> <native.jsonl> " +
+      "<sim.jsonl> <deltic-embedder.mjs> <translator.wasm> <viewer-aggregate.wasm>",
+  );
+}
 
 // --- 1. Aggregation parity with the gate ---------------------------
+// The same instantiation deltic.mjs performs in-page, with fs reads.
+const deltic = await import(pathToFileURL(bundlePath).href);
+const translator = await deltic.Translator.create(
+  new Uint8Array(readFileSync(translatorPath)),
+);
+const componentBytes = new Uint8Array(readFileSync(aggregatePath));
+const { plan, adapters } = translator.translate(componentBytes);
+const inst = await deltic.instantiate(
+  { plan, componentBytes, adapters },
+  deltic.wasiShims(),
+);
+const aggregate = inst.exports.run;
+
 const doc = JSON.parse(
-  aggregate(readFileSync(lockPath, "utf8"), readFileSync(manifestPath, "utf8"), [
+  await aggregate(readFileSync(lockPath, "utf8"), readFileSync(manifestPath, "utf8"), [
     ["native", readFileSync(nativePath, "utf8")],
     ["sim", readFileSync(simPath, "utf8")],
   ]),
@@ -42,76 +68,7 @@ expect(
   "hsm/attest not scheduled out on sim",
 );
 
-// --- 2. Live harness over the transpiled suites --------------------
-async function runSuite(name, missing) {
-  const cores = [];
-  for (const core of [`${name}.core.wasm`, `${name}.core2.wasm`]) {
-    try {
-      cores.push(new Uint8Array(readFileSync(new URL(`./suite/${core}`, import.meta.url))));
-    } catch {
-      continue;
-    }
-  }
-  const tagsOf = inventoryLookup(cores);
-  const { tests } = await import(`./suite/${name}.js`);
-  const events = [];
-  const counts = await runCases({
-    cases: await tests.all(),
-    Context,
-    tagsOf,
-    missing,
-    emit: (event, index) => events.push({ index, event }),
-  });
-  return { counts, events };
-}
-
-const sample = await runSuite("sample-suite", []);
-if (
-  sample.counts.passed !== 1 ||
-  sample.counts.failed !== 1 ||
-  sample.counts.skipped !== 1
-) {
-  fail(`sample suite verdicts: ${JSON.stringify(sample.counts)}`);
-}
-
-const fixture = await runSuite("fixture-suite", ["hsm"]);
-const byName = new Map(fixture.events.map(({ event }) => [event.case, event]));
-if (byName.get("fixture/trap/boom")?.provenance !== "trap") {
-  fail(`boom not a trap: ${JSON.stringify(byName.get("fixture/trap/boom"))}`);
-}
-if (byName.get("fixture/hsm/attest")?.status !== "not-applicable") {
-  fail(`hsm/attest not scheduled out: ${JSON.stringify(byName.get("fixture/hsm/attest"))}`);
-}
-if (byName.get("fixture/hsm/declined")?.status !== "pass") {
-  fail(`!hsm decline did not run/pass: ${JSON.stringify(byName.get("fixture/hsm/declined"))}`);
-}
-
-// Striping partitions: two shards reproduce the unsharded counts.
-async function runSharded(name, missing, count) {
-  const cores = [new Uint8Array(readFileSync(new URL(`./suite/${name}.core.wasm`, import.meta.url)))];
-  const tagsOf = inventoryLookup(cores);
-  const { tests } = await import(`./suite/${name}.js`);
-  const parts = [];
-  for (let index = 0; index < count; index++) {
-    parts.push(
-      await runCases({
-        cases: await tests.all(),
-        Context,
-        tagsOf,
-        missing,
-        shard: { index, count },
-        emit: () => {},
-      }),
-    );
-  }
-  return mergeCounts(parts);
-}
-const merged = await runSharded("fixture-suite", ["hsm"], 2);
-if (JSON.stringify(merged) !== JSON.stringify(fixture.counts)) {
-  fail(`sharded counts diverge: ${JSON.stringify(merged)} vs ${JSON.stringify(fixture.counts)}`);
-}
-
-// --- 3. Gating-adapter options (#50): freshCases + caseTimeoutMs ----
+// --- 2. Gating-adapter options (#50): freshCases + caseTimeoutMs ----
 // Synthetic cases (the loop only needs name()/run()): a hanging case
 // must produce the limit-exceeded row and not stall the loop, every
 // execution must re-enumerate through the factory, and a case
@@ -173,9 +130,12 @@ if (JSON.stringify(merged) !== JSON.stringify(fixture.counts)) {
   if (!vanished) {
     fail("vanished case on re-enumeration did not throw");
   }
+  // mergeCounts stays exercised here (the striped suite legs live in
+  // js/runner-deltic/selftest.mjs).
+  const twice = mergeCounts([counts, counts]);
+  if (twice.total !== 6) fail(`mergeCounts: ${JSON.stringify(twice)}`);
 }
 
 console.log(
-  `viewer selftest ok: aggregate ${JSON.stringify(doc.summary)}; ` +
-    `sample ${JSON.stringify(sample.counts)}; fixture ${JSON.stringify(fixture.counts)}`,
+  `viewer selftest ok: aggregate ${JSON.stringify(doc.summary)} (deltic-linked, no JSPI flag)`,
 );
