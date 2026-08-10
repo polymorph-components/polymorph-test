@@ -1,0 +1,40 @@
+# CI job bodies: each workflow job runs exactly one `gha::` recipe, so
+# `just ci` is exactly CI and the workflow files carry no logic beyond
+# environment setup.
+
+set working-directory := '..'
+
+# Wrap one recipe in a GitHub Actions log group (plain passthrough
+# locally).
+[private]
+_step recipe:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+        echo "::group::just {{recipe}}"
+        status=0
+        just {{recipe}} || status=$?
+        echo "::endgroup::"
+        if [ $status -ne 0 ]; then
+            echo "::error title=just {{recipe}} failed::exit status $status"
+            exit $status
+        fi
+    else
+        just {{recipe}}
+    fi
+
+# The native job: formatting, clippy, host-crate tests, WIT validation.
+host-checks:
+    @just gha::_step fmt-check
+    @just gha::_step lint
+    @just gha::_step test
+    @just gha::_step wit-check
+
+# The full verification matrix (`just all`) plus the fixture pipeline's
+# JUnit demo artifacts (the #11 demo): the workflow's presentation steps
+# render them into the job summary. The deliberate trap is the point -
+# the summary shows a real failure row; the gate is the `all` step, and
+# the fixture is *supposed* to fail, so the emitter is not a verdict.
+verify:
+    @just gha::_step all
+    @just gha::_step emit-demo

@@ -33,7 +33,7 @@ jobs:
         run: ./scripts/setup.sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Host checks
-        run: just host-checks
+        run: just gha::host-checks
 
   # The full verification matrix: component builds, all execution
   # paths (host-embed runner, composed wasi:cli runner under wasmtime,
@@ -71,15 +71,12 @@ jobs:
         run: ./scripts/setup.sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Verification matrix
-        run: just all
-
-      # The #11 demo: the fixture pipeline's results, converted by
-      # `component-test emit junit`, rendered into the run's job summary
-      # by an off-the-shelf reporter. The fixture's deliberate trap
-      # appears as a real failure row; fail_on_failure stays off - the
-      # gate is `just all` above, and the fixture is *supposed* to fail.
-      - name: Emit JUnit (demo)
-        run: just emit-demo
+        # Includes the fixture pipeline's JUnit demo artifacts (the #11
+        # demo): the following steps render them into the job summary.
+        # The fixture's deliberate trap appears as a real failure row;
+        # fail_on_failure stays off - the gate is `just all` inside
+        # gha::verify, and the fixture is *supposed* to fail.
+        run: just gha::verify
 
       - name: Aggregate the demo results into the job summary
         # Dogfoods actions/aggregate (the #14 composite action): the
