@@ -1,18 +1,30 @@
 # component-test task runner. `just` lists recipes; `just all` is the
-# full verification matrix from AGENTS.md.
+# full verification matrix from AGENTS.md. CI job bodies live in the gha
+# module (`.github/justfile`); `just ci` mirrors the gating CI jobs.
 
 wasm_target := "wasm32-wasip2"
 release_dir := "target" / wasm_target / "release"
 wasmtime_flags := "-W component-model-async -S p3"
 
-_default:
+# GitHub Actions plumbing: CI job entry points.
+mod gha '.github'
+
+# List the available recipes.
+default:
     @just --list --unsorted
+
+# The exact set of checks CI runs: each gating CI job runs exactly one
+# gha:: job recipe. The actions-setup-smoke job is excluded: it tests
+# the actions/setup composite action and only runs under Actions.
+ci: (gha::host-checks) (gha::verify)
 
 # Everything: host tests, component builds, all verification paths.
 all: build test test-wasm lock-check verify-embed verify-compose verify-deltic verify-pipeline verify-aggregate verify-viewer verify-imports verify-emit
 
-# CI's native job: formatting, clippy, host tests, WIT validation.
-host-checks: fmt-check lint test wit-check
+# The fast pre-commit checks: formatting, clippy, host tests, WIT
+# validation. The CI job of the same name runs the identical set
+# through gha::host-checks.
+check: fmt-check lint test wit-check
 
 fmt-check:
     cargo fmt --all --check
