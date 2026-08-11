@@ -63,3 +63,26 @@ ct-runner target/wasm32-wasip2/release/my_suite.wasm            # or --jsonl
 Commit `tests.lock` and regenerate it (`lock ... -o`) after any case
 change: the diff is the review surface, and runners/aggregation
 cross-check the inventory against what the suite actually enumerates.
+
+## Large suites
+
+Enumeration builds the whole registry per fresh instance, so
+instance-per-case isolation gets expensive at scale (10k cases ≈ 3ms
+per instance). Instead of relaxing isolation, pre-initialize the
+artifact once after building:
+
+```sh
+component-test wizen target/wasm32-wasip2/release/my_suite.wasm -o my_suite.wasm
+```
+
+The suite needs no changes (the contract's own `all()` is the init
+function), inventory and tag scheduling survive, and every fresh
+instance is born with the registry built — a 10k-case synthetic's
+K=1 run went 30.8s → 7.1s sequential, 1.14s at `--jobs 8`
+(findings.md 22–24; JS legs benefit far less — no copy-on-write
+memory images). Two caveats: the
+snapshot freezes whatever init observed (env, entropy, clocks), and
+the wizened artifact must be the one used everywhere downstream
+(runners, `lock --check`). Suites that import a system-under-test
+drive `component_test_runner::wizen::wizen_with` with their own
+linker instead.

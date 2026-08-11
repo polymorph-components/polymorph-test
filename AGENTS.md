@@ -51,7 +51,13 @@ crates/               host-side Rust (tested natively at root)
   component-test-results   canonical results schema + fold (guest-linkable)
   component-test-sdk       guest SDK (registry, prelude, verdict ergonomics)
   component-test-sdk-macro #[suite] attribute (case discovery, tags section)
-  component-test-cli       `component-test` bin: lock, fold, aggregate
+  component-test-cli       `component-test` bin: lock, fold, aggregate,
+                           pins, wizen, compose-runner, run (the last
+                           three embed wasmtime/wac-graph plus
+                           size-optimized runner-cli + provider builds
+                           from embedded/ — regenerate those with
+                           `just embed-update`, commit the diff;
+                           `just verify-cli` gates their behavior)
   component-test-runner    wasmtime host-embed runner (`ct-runner` bin)
 components/           guest components (build with --target wasm32-wasip2)
   provider                 reference context provider

@@ -13,6 +13,16 @@ path = "src/main.rs"
 [dependencies]
 component-test-core = { workspace = true }
 component-test-formats = { workspace = true }
+# The wizen entry points (feature `wizer`); the CLI is the plain-suite
+# driver, SUT-importing suites call the library directly (#85).
+component-test-runner = { workspace = true, features = ["wizer"] }
 anyhow = { workspace = true }
+clap = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
+# compose-runner/run: composition as a library (the shared-provider
+# topology of examples/compose, without shelling out to wac).
+wac-graph = { workspace = true }
+# run: the minimal embedding executing composed wasi:cli components.
+wasmtime = { workspace = true }
+wasmtime-wasi = { workspace = true }

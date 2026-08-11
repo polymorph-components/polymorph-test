@@ -10,41 +10,76 @@
 //! which broke every downstream grep-based gate at once — names do not.
 
 use anyhow::{bail, Context as _};
+use clap::{Args, Subcommand};
 
 /// This workspace's crates, as named in a consumer's Cargo.lock.
 const CRATE_PREFIX: &str = "component-test";
 /// The JS runner-core facade packaged at the repository root.
 const JS_PACKAGE: &str = "@polymorph/component-test-js";
 
-pub(crate) fn pins_cmd(args: &[String]) -> anyhow::Result<()> {
-    if args.first().map(|s| s.as_str()) == Some("bump") {
-        return bump_cmd(&args[1..]);
+#[derive(Args)]
+#[command(args_conflicts_with_subcommands = true, subcommand_negates_reqs = true)]
+pub(crate) struct PinsArgs {
+    #[command(subcommand)]
+    command: Option<PinsCommand>,
+    /// Consumer Cargo.lock: every git-sourced component-test-* crate's
+    /// resolved commit is a pin
+    #[arg(long, required = true, value_name = "Cargo.lock")]
+    cargo_lock: Option<String>,
+    /// npm/pnpm lockfile carrying the @polymorph/component-test-js pin
+    /// (repeatable)
+    #[arg(long = "js-lock", value_name = "lockfile")]
+    js_locks: Vec<String>,
+    /// Additionally require the single rev to be exactly this
+    #[arg(long, value_name = "rev")]
+    expect: Option<String>,
+}
+
+#[derive(Subcommand)]
+enum PinsCommand {
+    /// Rewrite the declared pins in place (the write half of the gate);
+    /// lockfile regeneration follow-ups are printed, not run
+    Bump(BumpArgs),
+}
+
+#[derive(Args)]
+struct BumpArgs {
+    /// The commit to pin (a full 40-hex hash)
+    #[arg(value_name = "rev", value_parser = parse_rev)]
+    rev: String,
+    /// Cargo.toml with git-pinned component-test-* dependency lines
+    /// (repeatable)
+    #[arg(long = "cargo-toml", value_name = "Cargo.toml")]
+    cargo_tomls: Vec<String>,
+    /// package.json naming @polymorph/component-test-js (repeatable)
+    #[arg(long = "package-json", value_name = "package.json")]
+    package_jsons: Vec<String>,
+    /// Workflow file with polymorph-test action refs (repeatable)
+    #[arg(long = "workflow", value_name = "ci.yml")]
+    workflows: Vec<String>,
+}
+
+fn parse_rev(s: &str) -> Result<String, String> {
+    let rev = s.to_ascii_lowercase();
+    if is_rev(&rev) {
+        Ok(rev)
+    } else {
+        Err("rev must be a full commit hash (40 hex)".to_string())
     }
-    let mut cargo_lock = None;
-    let mut js_locks: Vec<String> = Vec::new();
-    let mut expect = None;
-    let mut it = args.iter();
-    while let Some(arg) = it.next() {
-        match arg.as_str() {
-            "--cargo-lock" => {
-                cargo_lock = Some(it.next().context("--cargo-lock needs a path")?.clone())
-            }
-            "--js-lock" => js_locks.push(it.next().context("--js-lock needs a path")?.clone()),
-            "--expect" => expect = Some(it.next().context("--expect needs a rev")?.clone()),
-            "-h" | "--help" => {
-                println!("{}", crate::usage());
-                return Ok(());
-            }
-            other => bail!("unexpected argument `{other}`\n{}", crate::usage()),
-        }
+}
+
+pub(crate) fn pins_cmd(args: &PinsArgs) -> anyhow::Result<()> {
+    if let Some(PinsCommand::Bump(bump)) = &args.command {
+        return bump_cmd(bump);
     }
-    let cargo_lock = cargo_lock.context("missing --cargo-lock")?;
+    // Required by clap whenever no subcommand was given.
+    let cargo_lock = args.cargo_lock.as_deref().expect("required by clap");
 
     // Every place a pin was found: (source description, rev).
     let mut findings: Vec<(String, String)> = Vec::new();
 
     let text =
-        std::fs::read_to_string(&cargo_lock).with_context(|| format!("reading {cargo_lock}"))?;
+        std::fs::read_to_string(cargo_lock).with_context(|| format!("reading {cargo_lock}"))?;
     let crates = cargo_lock_revs(&text)?;
     if crates.is_empty() {
         bail!(
@@ -56,7 +91,7 @@ pub(crate) fn pins_cmd(args: &[String]) -> anyhow::Result<()> {
         findings.push((format!("{cargo_lock}: {name}"), rev));
     }
 
-    for path in &js_locks {
+    for path in &args.js_locks {
         let text = std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
         let revs = js_lock_revs(&text);
         if revs.is_empty() {
@@ -67,7 +102,7 @@ pub(crate) fn pins_cmd(args: &[String]) -> anyhow::Result<()> {
         }
     }
 
-    if let Some(rev) = expect {
+    if let Some(rev) = &args.expect {
         findings.push(("--expect".into(), rev.to_ascii_lowercase()));
     }
 
@@ -94,41 +129,19 @@ pub(crate) fn pins_cmd(args: &[String]) -> anyhow::Result<()> {
 /// regenerating them belongs to cargo/npm/pnpm, so the follow-up
 /// commands are printed instead of run, and the check half verifies
 /// the result.
-fn bump_cmd(args: &[String]) -> anyhow::Result<()> {
-    let mut rev = None;
-    let mut cargo_tomls: Vec<String> = Vec::new();
-    let mut package_jsons: Vec<String> = Vec::new();
-    let mut workflows: Vec<String> = Vec::new();
-    let mut it = args.iter();
-    while let Some(arg) = it.next() {
-        match arg.as_str() {
-            "--cargo-toml" => {
-                cargo_tomls.push(it.next().context("--cargo-toml needs a path")?.clone())
-            }
-            "--package-json" => {
-                package_jsons.push(it.next().context("--package-json needs a path")?.clone())
-            }
-            "--workflow" => workflows.push(it.next().context("--workflow needs a path")?.clone()),
-            "-h" | "--help" => {
-                println!("{}", crate::usage());
-                return Ok(());
-            }
-            other if rev.is_none() && is_rev(&other.to_ascii_lowercase()) => {
-                rev = Some(other.to_ascii_lowercase())
-            }
-            other => bail!("unexpected argument `{other}` (rev must be 40 lowercase hex)"),
-        }
-    }
-    let rev = rev.context("missing <rev> (40-hex commit)")?;
+fn bump_cmd(args: &BumpArgs) -> anyhow::Result<()> {
+    let rev = &args.rev;
+    let (cargo_tomls, package_jsons, workflows) =
+        (&args.cargo_tomls, &args.package_jsons, &args.workflows);
     if cargo_tomls.is_empty() && package_jsons.is_empty() && workflows.is_empty() {
         bail!("nothing to bump: name at least one --cargo-toml/--package-json/--workflow");
     }
 
     let mut cargo_crates: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     let mut touched_js = false;
-    for path in &cargo_tomls {
+    for path in cargo_tomls {
         let text = std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
-        let (new, crates) = bump_cargo_toml(&text, &rev);
+        let (new, crates) = bump_cargo_toml(&text, rev);
         if crates.is_empty() {
             bail!("{path}: no git-pinned `{CRATE_PREFIX}-*` dependency lines found");
         }
@@ -136,9 +149,9 @@ fn bump_cmd(args: &[String]) -> anyhow::Result<()> {
         cargo_crates.extend(crates);
         std::fs::write(path, new).with_context(|| format!("writing {path}"))?;
     }
-    for path in &package_jsons {
+    for path in package_jsons {
         let text = std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
-        let (new, n) = bump_named_lines(&text, JS_PACKAGE, &rev);
+        let (new, n) = bump_named_lines(&text, JS_PACKAGE, rev);
         if n == 0 {
             bail!("{path}: no rev-pinned {JS_PACKAGE} line found");
         }
@@ -146,9 +159,9 @@ fn bump_cmd(args: &[String]) -> anyhow::Result<()> {
         touched_js = true;
         std::fs::write(path, new).with_context(|| format!("writing {path}"))?;
     }
-    for path in &workflows {
+    for path in workflows {
         let text = std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
-        let (new, n) = bump_action_refs(&text, &rev);
+        let (new, n) = bump_action_refs(&text, rev);
         if n == 0 {
             bail!("{path}: no `{ACTION_PATH_ANCHOR}<action>@<rev>` refs found");
         }

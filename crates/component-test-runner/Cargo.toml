@@ -15,10 +15,11 @@ futures = { workspace = true }
 # on the wasmtime-wasi runtime (which powers wasi clock pollables, so
 # time is enabled there).
 tokio = { workspace = true, features = ["time"] }
-wasmtime = { version = "47", features = ["component-model-async"] }
-wasmtime-wasi = "47"
-# For the feature-gated `wizer-preinit` bin only (component-level
-# pre-initialization experiments, #25 / findings.md #22).
+wasmtime = { workspace = true }
+wasmtime-wasi = { workspace = true }
+# For the feature-gated `wizen` module (component-level
+# pre-initialization, #25 / findings.md #22; `component-test wizen`
+# is the plain-suite driver).
 wasmtime-wizer = { version = "47", features = ["wasmtime", "component-model"], optional = true }
 
 [features]
@@ -31,11 +32,6 @@ path = "src/bin/ct-runner.rs"
 [[bin]]
 name = "bench-mint"
 path = "src/bin/bench-mint.rs"
-
-[[bin]]
-name = "wizer-preinit"
-path = "src/bin/wizer-preinit.rs"
-required-features = ["wizer"]
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
