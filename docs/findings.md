@@ -181,26 +181,38 @@ fresh instances are born initialized. `wasmtime-wizer` 47 as a
 library; drivers: `wizer-preinit` bin (feature `wizer`) over the
 bench-suite artifact built with its `wizer-init` feature.
 
-22. **Component-level pre-init works today (wasmtime-wizer 47,
-    library route) — #25's "core-module level only" constraint is
-    stale.** `Wizer::run_component` takes a caller-supplied
-    instantiate closure, so a custom linker can satisfy the suite's
-    `test-context` import (host resource + methods init never calls)
-    and full WASI (env reads during init work). The `wasmtime wizer`
-    CLI cannot express this today, for three separate reasons: the
-    invoke grammar rejects versioned interface qualifiers
-    (`polymorph:test/tests@0.1.0.all` — invalid token at the `@`);
-    unknown-import stubbing cannot synthesize **resource** types
-    ("resource implementation is missing"); and composed bundles fail
-    ("nested components with modules not currently supported"). The
-    init entry must therefore be a bare-named export
-    (`wizer-initialize: func()`, wizer's default) — bench-suite adds
-    it as a second inline-WIT world under its `wizer-init` feature,
-    and wasm-component-ld merges the two worlds. Two more edges:
-    `keep_init_func(false)` (the default) emits an invalid component
-    (dangling core-instance export reference; keep the init func);
-    custom sections **survive** the rewrite (tags inventory intact —
-    the runner's scheduling and drift checks work on the wizened
+22. **Component-level pre-init works today (wasmtime-wizer 47) — #25's
+    "core-module level only" constraint is stale — and the suite needs
+    no init export: the contract's own `all()` is the init function.**
+    Named in the *version-last* invoke syntax,
+    `polymorph:test/tests.all@0.1.0()` — the wave/`ItemName` grammar
+    places `@version` after the item name to resolve the dot
+    ambiguity (`pkg:ns/iface.func@1.2.3`), and rejects the
+    export-name-order form `pkg:ns/iface@1.2.3.func` by design (the
+    resulting "invalid token" error points at the run-command docs
+    and hints at neither). The parenthesized wave-call form is
+    required: the bare item-name path demands a `[] -> []` signature,
+    and `all` has a result. The returned handles are per-call state;
+    only the built registry lands in the snapshot (measured: same
+    size as via a dedicated no-op init export, ±3KB). Wizening a
+    *suite* still needs wasmtime-wizer as a library —
+    `Wizer::run_component` takes a caller-supplied instantiate
+    closure, so a custom linker satisfies `test-context` (a host
+    resource whose methods init never calls) plus full WASI (env
+    reads during init work) — because the CLI cannot: unknown-import
+    stubbing cannot synthesize **resource** types ("resource
+    implementation is missing"), composed bundles fail ("nested
+    components with modules not currently supported"), and the CLI
+    additionally defaults WASI *off* for wizening (`-S cli`
+    required for env-reading inits). Two upstream edges:
+    `keep_init_func(false)` — moot here (stripping would remove
+    `tests.all`) — emits an invalid component for dedicated init
+    exports (dangling core-instance export reference; known,
+    bytecodealliance/wasmtime#13168); and the wave func-name lexer's
+    semver subpattern is bare `X.Y.Z`, so prerelease-versioned
+    interfaces (`@0.3.0-rc-…`) cannot be named in call form. Custom
+    sections **survive** the rewrite (tags inventory intact — the
+    runner's scheduling and drift checks work on the wizened
     artifact, unlike wac-composed bundles, finding 14).
 23. **wasmtime, wizened 10k suite: the registry-build half vanishes
     exactly.** all#1 3.15ms → 663µs ≈ all#2; instantiate unchanged

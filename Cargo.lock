@@ -72,7 +72,6 @@ name = "bench-suite"
 version = "0.1.0"
 dependencies = [
  "component-test-sdk",
- "wit-bindgen",
 ]
 
 [[package]]
