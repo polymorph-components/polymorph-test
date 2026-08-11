@@ -11,18 +11,24 @@
 //
 //   deno run --allow-read=target --config js/runner-deltic/deno.json \
 //     --frozen js/runner-deltic/runner.ts <suite.wasm> \
-//     --translator <translator_shim.wasm> [--jsonl] [--target NAME]
+//     [--translator <translator_shim.wasm>] [--jsonl] [--target NAME]
 //
-// The deltic release pin lives in deno.json + fetch-deltic.ts (which
-// see, for the bump procedure).
+// The translator comes from the pinned @deltic/translator package through
+// the module graph (permission-free: no net grant, no read grant for the
+// asset). `--translator` stays as a documented escape hatch for driving an
+// externally-sourced translator wasm; absent, the packaged one is used.
+//
+// The deltic pin lives in deno.json + deno.lock (which see, and README.md
+// for the bump procedure).
 
 import { Translator } from "@deltic/runtime/shim";
+import { defaultTranslator } from "@deltic/translator";
 import { runSuite } from "@deltic/ct-runner";
 import { wasiShims } from "@deltic/wasi-shims";
 
 interface Cli {
   suitePath: string;
-  translator: string;
+  translator?: string;
   jsonl: boolean;
   target: string;
   missing?: string[];
@@ -54,9 +60,9 @@ function parseArgs(argv: string[]): Cli {
         positional.push(a);
     }
   }
-  if (positional.length !== 1 || translator === undefined) {
+  if (positional.length !== 1) {
     console.error(
-      "usage: runner.ts <suite.wasm> --translator <translator_shim.wasm> " +
+      "usage: runner.ts <suite.wasm> [--translator <translator_shim.wasm>] " +
         "[--jsonl] [--target NAME] [--missing f1,f2,...]",
     );
     Deno.exit(2);
@@ -107,7 +113,11 @@ function suiteNameFrom(path: string): string {
 async function main() {
   const cli = parseArgs(Deno.args);
   const componentBytes = await Deno.readFile(cli.suitePath);
-  const translator = await Translator.create(await Deno.readFile(cli.translator));
+  // Packaged by default (loads through the module graph, no permissions);
+  // --translator drives an externally-sourced translator wasm instead.
+  const translator = cli.translator === undefined
+    ? await defaultTranslator()
+    : await Translator.create(await Deno.readFile(cli.translator));
   const { plan, adapters } = translator.translate(componentBytes);
 
   const lines: string[] = [];

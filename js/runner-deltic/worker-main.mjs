@@ -9,7 +9,7 @@
 // across the boundary. The downstream pattern is a bundled worker entry:
 //
 //   // worker-entry.ts — deno bundle --platform browser
-//   import * as deltic from "…/tools/release-bundle/entry.ts"; // raw URLs
+//   import * as deltic from "./browser-bundle-entry.ts"; // jsr:@deltic/*
 //   import { workerMain } from "@polymorph/component-test-js/deltic-worker-main";
 //   import { configure, websocketImports } from "../../js/deltic/websocket.ts";
 //   workerMain({

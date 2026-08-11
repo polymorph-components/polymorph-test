@@ -99,12 +99,88 @@ verify-compose: build
     diff -u expected/verify-pipeline-sample-fold.txt "$tmp/fold.txt"
     echo "verify-compose: output matches expected/ (incl. JSONL + cross-runner fold)"
 
+# The one-version-everywhere gate for the deltic pin (successor to the
+# retired fetch script's `assertPinConsistency`): every jsr:@deltic/*
+# specifier in every deno.json, and every @deltic package the lock
+# resolves, must name the SAME prerelease — one version names one
+# upstream commit, and the browser assets are built from that same graph.
+deltic-pin-gate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    configs=(js/runner-deltic/deno.json)
+    v=$(grep -ho 'jsr:@deltic/[a-z-]*@[^/"]*' "${configs[@]}" | sed 's/.*@//' | sort -u)
+    test -n "$v" || { echo "deltic pin gate: no jsr:@deltic specifiers found" >&2; exit 1; }
+    [ "$(printf '%s\n' "$v" | wc -l)" = 1 ] || { echo "deltic pin drift: $v" >&2; exit 1; }
+    python3 - "$v" js/runner-deltic/deno.lock <<'PY'
+    import json, sys
+    want, lock = sys.argv[1], json.load(open(sys.argv[2]))
+    bad = {k: r for k, r in lock.get("specifiers", {}).items()
+           if "@deltic/" in k and r != want}
+    bad.update({k: k for k in lock.get("jsr", {}) if k.startswith("@deltic/")
+                and not k.endswith("@" + want)})
+    if bad:
+        sys.exit(f"deltic lock drift (want {want}): {sorted(bad)}")
+    PY
+    echo "deltic pin gate: all @deltic packages pinned to $v"
+
+# The deltic browser-leg assets, built from the pinned JSR graph (no
+# network fetch, no sha bookkeeping — deno.lock carries JSR package
+# integrity and --frozen enforces it):
+#
+#   target/deltic-browser/deltic-embedder.mjs         bundled from
+#       js/runner-deltic/browser-bundle-entry.ts (embedder API +
+#       Translator + ct-runner glue + wasi shims, one platform-neutral
+#       ES module — what the browser worker and the node selftest load)
+#   target/deltic-browser/deltic-translator-shim.wasm the translator
+#       asset packaged in @deltic/translator, copied out of the
+#       lock-pinned module cache (the Deno runner leg needs no copy: it
+#       loads the packaged translator through the module graph)
+#
+# The directory is version-free on purpose: the lock owns versioning.
+deltic-assets: deltic-pin-gate
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out=target/deltic-browser
+    mkdir -p "$out"
+    deno bundle --config js/runner-deltic/deno.json --frozen --platform browser \
+        -o "$out/deltic-embedder.mjs" js/runner-deltic/browser-bundle-entry.ts
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    deno info --json --config js/runner-deltic/deno.json --frozen @deltic/translator \
+        > "$tmp/info.json"
+    pin=$(grep -o 'jsr:@deltic/runtime@[^/"]*' js/runner-deltic/deno.json | head -1 | sed 's/.*@//')
+    python3 - "$tmp/info.json" "$out/deltic-translator-shim.wasm" "$pin" <<'PY'
+    import json, sys
+    graph = json.load(open(sys.argv[1]))
+    want = sys.argv[3]
+    mods = [m for m in graph["modules"] if "/@deltic/" in m.get("specifier", "")]
+    bad = {m["specifier"] for m in mods if want not in m["specifier"]}
+    if bad:
+        sys.exit(f"pin drift in translator graph (expected {want}): {bad}")
+    asset = next(m for m in mods if m["specifier"].endswith("/translator_shim.wasm"))
+    # CONTRACT: the migration contract copies the cache file wholesale, but
+    # Deno 2.9.5 stores remote modules as body + a "\n// denoCacheMetadata={...}"
+    # trailer; copying it verbatim yields a wasm that fails to compile
+    # ("section out of order"). Take exactly the module's own byte length
+    # (deno info's `size`, == the response content-length) and assert that
+    # anything past it is only that trailer.
+    blob = open(asset["local"], "rb").read()
+    body, rest = blob[: asset["size"]], blob[asset["size"] :]
+    if not body.startswith(b"\0asm"):
+        sys.exit("translator asset is not a wasm module")
+    if rest and not rest.lstrip(b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\r ").startswith(b"// denoCacheMetadata="):
+        sys.exit("unexpected trailing bytes in cached translator asset")
+    open(sys.argv[2], "wb").write(body)
+    PY
+
 # Path 3: deltic-deno runner (runner-is-provider, like Path 3, but no
 # transpile step, no generated tree, and no engine flag — deltic is a
 # runtime linker; the contract's async exports run on the callback ABI
-# under stock Deno). Pinned to a deltic release by
-# js/runner-deltic/{deno.json,fetch-deltic.ts}, with deno.lock enforced
-# via --frozen. Tag scheduling comes from the suite's own embedded
+# under stock Deno). Pinned to exact deltic JSR prereleases by
+# js/runner-deltic/deno.json, with deno.lock enforced via --frozen and
+# agreement asserted by deltic-pin-gate. The Deno leg's translator comes
+# from the packaged @deltic/translator through the module graph; the
+# browser/node legs use the repo-built assets (`just deltic-assets`).
+# Tag scheduling comes from the suite's own embedded
 # inventory (deltic#25): the fixture leg runs --missing hsm exactly like
 # Paths 1/4 and schedules the hsm case out as not-applicable; the sample
 # legs reuse Path 2/3's human golden and Path 2/4's fold golden. The
@@ -112,17 +188,14 @@ verify-compose: build
 # engine.mjs + the shared harness.mjs case loop) over the pinned embedder
 # bundle under plain node — no --experimental-wasm-jspi: the callback ABI
 # needs no engine flag, which is the browser-leg premise.
-verify-deltic: build
+verify-deltic: build deltic-assets
     #!/usr/bin/env bash
     set -euo pipefail
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-    fetch() { deno run --allow-read=js/runner-deltic,target --allow-write=target \
-        --allow-net=github.com,objects.githubusercontent.com,release-assets.githubusercontent.com \
-        js/runner-deltic/fetch-deltic.ts --asset "$1"; }
-    translator=$(fetch translator)
-    bundle=$(fetch embedder)
+    translator=target/deltic-browser/deltic-translator-shim.wasm
+    bundle=target/deltic-browser/deltic-embedder.mjs
     run() { deno run --allow-read=target --config js/runner-deltic/deno.json --frozen \
-        js/runner-deltic/runner.ts "$@" --translator "$translator"; }
+        js/runner-deltic/runner.ts "$@"; }
     norm() { sed -E -e 's/"artifact-sha256":"[0-9a-f]{64}"/"artifact-sha256":"<sha256>"/' \
         -e 's/,"duration-ms":[0-9]+//g'; }
     fold() { cargo run -q -p component-test-cli -- fold "$@"; }
@@ -245,17 +318,13 @@ emit-demo: build
 # no transpile step) and the demo suites (component wasm, verbatim),
 # plus the pinned deltic assets copied beside the viewer so local serve
 # and Pages share one relative layout (js/viewer/deltic.mjs).
-viewer-build: build
+viewer-build: build deltic-assets
     #!/usr/bin/env bash
     set -euo pipefail
     cargo build --release --target wasm32-wasip2 -p viewer-aggregate
-    fetch() { deno run --allow-read=js/runner-deltic,target --allow-write=target \
-        --allow-net=github.com,objects.githubusercontent.com,release-assets.githubusercontent.com \
-        js/runner-deltic/fetch-deltic.ts --asset "$1"; }
-    translator=$(fetch translator)
-    bundle=$(fetch embedder)
     mkdir -p js/viewer/deltic js/viewer/generated js/viewer/suite
-    cp "$translator" "$bundle" js/viewer/deltic/
+    cp target/deltic-browser/deltic-translator-shim.wasm \
+        target/deltic-browser/deltic-embedder.mjs js/viewer/deltic/
     cp {{release_dir}}/viewer_aggregate.wasm js/viewer/generated/viewer-aggregate.wasm
     cp {{release_dir}}/sample_suite.wasm {{release_dir}}/fixture_suite.wasm js/viewer/suite/
 
