@@ -129,3 +129,45 @@ Rust `wasm32-wasip2` target.
     WASI sleep: `std::thread::sleep` on wasip2 suspends in the host's
     async `poll`, no wasm executing). Hence `hang/wedge` sleeps via
     WASI rather than awaiting `pending()`.
+
+## Handle mint/lift at scale (bench-suite; #22/#25 context)
+
+Synthetic measurement of the `all()` protocol per fresh instance —
+N trivially-passing cases, no corpus, no per-case data
+(`components/bench-suite`, count via `BENCH_CASES` env). Drivers:
+`bench-mint` bin (wasmtime, production `Runner` config: pooling, CoW,
+epoch instrumentation, untyped `Val` calls) and
+`js/runner-deltic/bench-mint.mjs` (pinned deltic embedder, plain
+Node). Medians over 20/10 fresh instances, one dev box (17-core
+x86_64 Linux), wasmtime 47.0.3 / deltic pre-83fff30 / Node 24.
+
+19. **wasmtime: `all()` splits ~3:1 registry-build : mint+lift, both
+    linear.** At 10k cases: all#1 (build + mint + lift) 3.2ms, all#2
+    (mint + lift only, registry cached) 0.79ms ≈ **75–80ns/handle**;
+    registry build (the OnceCell `IndexMap` + boxed-closure loop) ≈
+    240ns/case. Instantiate 21µs; store drop 83µs at 10k (scales with
+    lifted-handle count); `name`/`run` boundary calls 2–3µs each.
+    Instance-per-case on a 10k suite therefore pays ~3.3ms/case of
+    pure protocol overhead (matches #22's campaign arithmetic), and
+    the guest-side registry build — not the handle lift — is the
+    larger share, so SDK-side table work (static case table, #25
+    wizer) buys more than lift avoidance alone; a direct-access
+    interface caps out at ~25% unless stacked on a lazy/static
+    registry.
+20. **deltic (runtime linker, callback ABI): same shape, bigger
+    constants.** Instantiate ~650µs (~30× wasmtime); mint+lift
+    ~340–370ns/handle (~4.3×; mildly superlinear by 30k — V8 GC on
+    the wrapper objects); per-call boundary overhead ~25µs (~10×);
+    all#1 at 10k ≈ 5.2ms. Translator init + component translate are
+    one-off ~16ms + ~25ms. Per-fresh-instance topologies are
+    tolerable here only while per-instance work stays O(cases
+    served), not O(suite).
+21. **`harness.mjs` fresh-instance relocation is the real JS-leg
+    quadratic**: `freshCases` re-finds the case by a linear
+    `name()` scan (harness.mjs `String(await c.name()) === name`), ≈
+    N/2 × 25µs ≈ **130ms per case** at 10k — ~20× the `all()` cost it
+    sits on top of. The contract guarantees `all()` order is
+    deterministic across instances, so positional relocation (index
+    into the fresh list + one `name()` verify) is sound and erases
+    the scan.
+

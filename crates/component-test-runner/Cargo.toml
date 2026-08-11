@@ -22,5 +22,9 @@ wasmtime-wasi = "47"
 name = "ct-runner"
 path = "src/bin/ct-runner.rs"
 
+[[bin]]
+name = "bench-mint"
+path = "src/bin/bench-mint.rs"
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

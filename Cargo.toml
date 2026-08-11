@@ -8,6 +8,7 @@ members = [
     "crates/component-test-sdk-macro",
     "crates/component-test-cli",
     "crates/component-test-runner",
+    "components/bench-suite",
     "components/drift-fixture",
     "components/fixture-suite",
     "components/hang-fixture",
