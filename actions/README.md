@@ -32,6 +32,23 @@ fails the run (branch/tag refs skip with a notice).
 `source-path: .` installs from a checkout instead of `--git` (used by
 this repository's own CI smoke, and the local-override analogue).
 
+The installed CLI carries the whole composition/execution surface —
+`wizen` (pre-initialize large suites, #25/#85), `compose-runner`, and
+`run` (embedded reference provider, runner core, and wasmtime) — so a
+consumer pipeline that only needs the composed path installs no wac
+and no wasmtime. Wizening in CI is one line after setup, on the built
+artifact:
+
+```sh
+target/ct-tools/bin/component-test wizen suite.wasm -o suite.wasm
+```
+
+(Run the wizened artifact everywhere downstream — runners and
+`lock --check` alike; mixing artifacts is the failure mode.) There is
+deliberately no `wizen:` input on this action: setup runs before the
+consumer's suite artifacts exist. When a run-suite action materializes
+(below), wizening belongs there as an input.
+
 ### The local half: one canonical `_ct-tools` recipe
 
 CI is only half the bootstrap; local `just` runs need the same tools.
@@ -112,7 +129,8 @@ red. The action adds presentation, never verdict.
 - **run-suite** (execute a suite artifact on a runner kind, upload
   results): deliberately parked until a second consumer exists — the
   generic/specific line for SUT-linked drivers, artifact caches, and
-  browser-leg fallbacks is not knowable from one data point.
+  browser-leg fallbacks is not knowable from one data point. #85's
+  `wizen: true` flag lands here as an input when it exists.
 - **publish-viewer** as a *reusable* action: the viewer deploy is a
   workflow in this repository for now (`.github/workflows/pages.yml`);
   generalizing it needs the same second data point.
