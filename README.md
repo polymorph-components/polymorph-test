@@ -269,4 +269,6 @@ WPT, `go test`, LLVM lit) is tracked in the issues.
   viewer.
 - Interop emitters: JUnit XML, TAP, GitHub Actions annotations.
 - Reusable GitHub Actions workflows.
-- A `component-test` CLI wrapping composition, execution, and aggregation.
+- A `component-test` CLI wrapping composition, execution, and aggregation
+  (`compose-runner`/`run` embed the reference provider + wasi:cli runner
+  core), plus wizer pre-initialization for large suites (`wizen`).

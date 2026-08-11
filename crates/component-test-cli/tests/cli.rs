@@ -90,7 +90,7 @@ fn fold_with(lock: &Path, jsonl: &str) -> Output {
 fn usage_and_help() {
     let out = run(&[], None);
     assert_eq!(out.code, 2);
-    assert!(out.stderr.contains("usage:"), "{}", out.stderr);
+    assert!(out.stderr.contains("Usage:"), "{}", out.stderr);
 
     for args in [
         &["--help"][..],
@@ -98,22 +98,26 @@ fn usage_and_help() {
         &["fold", "--help"],
         &["aggregate", "--help"],
         &["pins", "--help"],
+        &["wizen", "--help"],
+        &["compose-runner", "--help"],
+        &["run", "--help"],
     ] {
         let out = run(args, None);
         assert_eq!(out.code, 0, "{args:?}");
-        assert!(out.stdout.contains("usage:"), "{args:?}");
+        assert!(out.stdout.contains("Usage:"), "{args:?}");
     }
 
     let out = run(&["frobnicate"], None);
     assert_eq!(out.code, 2);
 
     let out = run(&["lock", "--bogus"], None);
-    assert_eq!(out.code, 1);
-    assert!(
-        out.stderr.contains("unknown flag `--bogus`"),
-        "{}",
-        out.stderr
-    );
+    assert_eq!(out.code, 2);
+    assert!(out.stderr.contains("--bogus"), "{}", out.stderr);
+
+    // `wizer` is an alias for `wizen`.
+    let out = run(&["wizer", "--help"], None);
+    assert_eq!(out.code, 0);
+    assert!(out.stdout.contains("Usage:"), "{}", out.stdout);
 }
 
 #[test]
@@ -517,9 +521,10 @@ fn aggregate_applies_applicability_for_unscheduled_streams() {
 
 #[test]
 fn aggregate_missing_args() {
+    // Required-argument enforcement is clap's: exit 2, naming the flag.
     let out = run(&["aggregate", "--manifest", "x.toml"], None);
-    assert_eq!(out.code, 1);
-    assert!(out.stderr.contains("missing --lock"), "{}", out.stderr);
+    assert_eq!(out.code, 2);
+    assert!(out.stderr.contains("--lock"), "{}", out.stderr);
 }
 
 const AGG_XFAIL_MANIFEST: &str = r#"
@@ -733,6 +738,123 @@ fn lock_emits_inventory_to_stdout() {
         out.stdout
     );
     assert!(out.stdout.contains("artifact_sha256"), "{}", out.stdout);
+}
+
+// ---------------------------------- wizen / compose-runner / run
+// (need built wasm)
+
+fn target_tmp(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name)
+}
+
+/// Wizening must leave the inventory intact: the tags section survives
+/// the rewrite (finding #22), so the committed lockfile still checks
+/// against the wizened artifact.
+#[test]
+#[ignore = "needs built components: run via `just test-wasm`"]
+fn wizen_preserves_inventory() {
+    let wasm = suite_artifact("sample_suite");
+    let wizened = target_tmp("sample-wizened.wasm");
+    let out = run(
+        &[
+            "wizen",
+            wasm.to_str().unwrap(),
+            "-o",
+            wizened.to_str().unwrap(),
+        ],
+        None,
+    );
+    assert_eq!(out.code, 0, "stderr: {}", out.stderr);
+    assert!(out.stdout.contains("wizened:"), "{}", out.stdout);
+
+    let lock = workspace_root().join("components/sample-suite/tests.lock");
+    let out = run(
+        &[
+            "lock",
+            wizened.to_str().unwrap(),
+            "--check",
+            lock.to_str().unwrap(),
+        ],
+        None,
+    );
+    assert_eq!(out.code, 0, "stderr: {}", out.stderr);
+    assert!(out.stdout.contains("ok: 3 cases match"), "{}", out.stdout);
+}
+
+/// compose-runner emits a component; run executes the same composition
+/// in memory and reproduces the composed runner's JSONL golden
+/// byte-for-byte (the same bytes `just verify-compose` pins for the
+/// wac-composed path — one wire format, however composed).
+#[test]
+#[ignore = "needs built components: run via `just test-wasm`"]
+fn compose_runner_and_run_reproduce_the_composed_golden() {
+    let wasm = suite_artifact("sample_suite");
+    let composed = target_tmp("sample-composed.wasm");
+    let out = run(
+        &[
+            "compose-runner",
+            wasm.to_str().unwrap(),
+            "-o",
+            composed.to_str().unwrap(),
+        ],
+        None,
+    );
+    assert_eq!(out.code, 0, "stderr: {}", out.stderr);
+    let bytes = std::fs::read(&composed).unwrap();
+    assert!(bytes.starts_with(b"\0asm"), "composed output is not wasm");
+
+    let golden = workspace_root().join("expected/verify-compose-sample.jsonl");
+    let golden = std::fs::read_to_string(golden).unwrap();
+    // The sample suite has a deliberate failure: exit 1, verdicts intact.
+    for input in [wasm.as_path(), composed.as_path()] {
+        let out = run(&["run", "--jsonl", input.to_str().unwrap()], None);
+        assert_eq!(out.code, 1, "stderr: {}", out.stderr);
+        assert_eq!(out.stdout, golden, "run {input:?} diverged from golden");
+    }
+}
+
+/// Inputs that cannot compose are rejected by name, not by wac
+/// internals: an already-composed component, and a non-suite component.
+#[test]
+#[ignore = "needs built components: run via `just test-wasm`"]
+fn compose_runner_rejects_non_suites() {
+    let wasm = suite_artifact("sample_suite");
+    let composed = target_tmp("sample-composed-reject.wasm");
+    let out = run(
+        &[
+            "compose-runner",
+            wasm.to_str().unwrap(),
+            "-o",
+            composed.to_str().unwrap(),
+        ],
+        None,
+    );
+    assert_eq!(out.code, 0, "stderr: {}", out.stderr);
+
+    let out = run(
+        &[
+            "compose-runner",
+            composed.to_str().unwrap(),
+            "-o",
+            target_tmp("never-written.wasm").to_str().unwrap(),
+        ],
+        None,
+    );
+    assert_eq!(out.code, 1);
+    assert!(out.stderr.contains("already composed"), "{}", out.stderr);
+
+    let provider = suite_artifact("provider");
+    let out = run(
+        &[
+            "compose-runner",
+            provider.to_str().unwrap(),
+            "-o",
+            target_tmp("never-written2.wasm").to_str().unwrap(),
+        ],
+        None,
+    );
+    assert_eq!(out.code, 1);
+    assert!(out.stderr.contains("not a test suite"), "{}", out.stderr);
 }
 
 // ------------------------------------------------------ pins

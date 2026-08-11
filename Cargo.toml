@@ -44,6 +44,7 @@ component-test-formats = { path = "crates/component-test-formats" }
 component-test-results = { path = "crates/component-test-results" }
 component-test-sdk = { path = "crates/component-test-sdk" }
 component-test-sdk-macro = { path = "crates/component-test-sdk-macro" }
+component-test-runner = { path = "crates/component-test-runner" }
 wit-bindgen = "0.60"
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }
@@ -53,7 +54,24 @@ toml = "0.9"
 tokio = { version = "1", default-features = false }
 anyhow = "1"
 trybuild = "1"
+clap = { version = "4", features = ["derive"] }
+# One wasmtime everywhere: the host-embed runner and the CLI's `run`
+# embedding must agree (and stay in step with the wasmtime CLI the
+# verify recipes drive).
+wasmtime = { version = "47", features = ["component-model-async"] }
+wasmtime-wasi = { version = "47", features = ["p3"] }
+# Composition as a library (the CLI's compose-runner/run): same
+# release line as the wac CLI the compose examples document.
+wac-graph = "0.10"
 
 [profile.release]
 opt-level = "s"
 strip = true
+
+# The components baked into the CLI (`just embed-update`): size over
+# speed — they ship inside every `component-test` binary.
+[profile.embed]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1

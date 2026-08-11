@@ -12,6 +12,9 @@
 
 use std::path::Path;
 
+#[cfg(feature = "wizer")]
+pub mod wizen;
+
 use component_test_core::{Provenance, Tags};
 use component_test_formats::results::{
     CaseResult, Envelope, Event, RunInfo, Status, SuiteInfo, RESULTS_VERSION, TERMINATOR,
@@ -590,6 +593,10 @@ impl<D: RunnerView + 'static> Runner<D> {
     /// unlimited (single instance for the whole run; cheap suites);
     /// K = fresh instance every K cases. A trap always abandons the
     /// current instance regardless.
+    /// For K=1 at scale, wizening the suite removes most of the
+    /// per-instance enumeration cost instead of relaxing isolation
+    /// ([`wizen`](crate::wizen), `component-test wizen`; findings
+    /// 22–24).
     /// `jobs`: worker parallelism. Workers share the compiled engine,
     /// own their stores, and run the modulo stripe
     /// `runnable-index % jobs == worker` (expensive cases cluster, so

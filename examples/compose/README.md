@@ -1,5 +1,12 @@
 # Composition examples
 
+`component-test compose-runner suite.wasm -o composed.wasm` (and
+`component-test run suite.wasm`, which composes in memory and
+executes) wrap this entire flow with an embedded reference provider
+and runner core. The raw commands below remain the recipe for custom
+topologies — SUT providers, negative composition gates, debugging —
+and are what the wrapper mirrors.
+
 Two-step (canonical): bundle the suite with the reference context
 provider, then plug the bundle into a runner core.
 

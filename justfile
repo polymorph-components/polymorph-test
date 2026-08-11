@@ -19,8 +19,7 @@ default:
 ci: (gha::host-checks) (gha::verify)
 
 # Everything: host tests, component builds, all verification paths.
-all: build test test-wasm lock-check verify-embed verify-compose verify-deltic verify-pipeline verify-aggregate verify-viewer verify-imports verify-emit
-
+all: build test test-wasm lock-check verify-embed verify-compose verify-cli verify-deltic verify-pipeline verify-aggregate verify-viewer verify-imports verify-emit
 # The fast pre-commit checks: formatting, clippy, host tests, WIT
 # validation. The CI job of the same name runs the identical set
 # through gha::host-checks.
@@ -98,6 +97,42 @@ verify-compose: build
     test "$code" -eq 1
     diff -u expected/verify-pipeline-sample-fold.txt "$tmp/fold.txt"
     echo "verify-compose: output matches expected/ (incl. JSONL + cross-runner fold)"
+
+# Path 2b: the CLI's composition/execution subcommands (#85).
+# compose-runner (embedded provider + runner core) must reproduce Path
+# 2's goldens under the wasmtime CLI; run is the same composition under
+# the embedded wasmtime (human + JSONL legs); wizen pre-initializes
+# with inventory, scheduling, and runnability intact (findings 22–24).
+# This is also the embedded artifacts' freshness gate: behavioral drift
+# between components/{runner-cli,provider} and the committed
+# crates/component-test-cli/embedded/ copies fails the diffs
+# (byte-comparing builds across environments is off the table, #44) —
+# after changing those components run `just embed-update` and commit.
+verify-cli: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cli() { cargo run -q -p component-test-cli -- "$@"; }
+    ct() { cargo run -q -p component-test-runner --bin ct-runner -- "$@"; }
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    cli compose-runner {{release_dir}}/sample_suite.wasm -o "$tmp/composed.wasm"
+    out=$(wasmtime run {{wasmtime_flags}} "$tmp/composed.wasm") && code=0 || code=$?
+    test "$code" -eq 1
+    diff -u expected/verify-run-sample.txt <(printf '%s\n' "$out")
+    out=$(cli run {{release_dir}}/sample_suite.wasm) && code=0 || code=$?
+    test "$code" -eq 1
+    diff -u expected/verify-run-sample.txt <(printf '%s\n' "$out")
+    jsonl=$(cli run --jsonl {{release_dir}}/sample_suite.wasm) && code=0 || code=$?
+    test "$code" -eq 1
+    diff -u expected/verify-compose-sample.jsonl <(printf '%s\n' "$jsonl")
+    cli wizen {{release_dir}}/sample_suite.wasm -o "$tmp/wizened.wasm"
+    cli lock "$tmp/wizened.wasm" --check components/sample-suite/tests.lock
+    out=$(ct "$tmp/wizened.wasm") && code=0 || code=$?
+    test "$code" -eq 1
+    diff -u expected/verify-embed-sample.txt <(printf '%s\n' "$out")
+    out=$(cli run "$tmp/wizened.wasm") && code=0 || code=$?
+    test "$code" -eq 1
+    diff -u expected/verify-run-sample.txt <(printf '%s\n' "$out")
+    echo "verify-cli: output matches expected/ (compose-runner, run, wizen)"
 
 # The one-version-everywhere gate for the deltic pin (successor to the
 # retired fetch script's `assertPinConsistency`): every jsr:@deltic/*
@@ -385,6 +420,18 @@ lock-update: build
         {{release_dir}}/sample_suite.wasm -o components/sample-suite/tests.lock
     cargo run -q -p component-test-cli -- lock \
         {{release_dir}}/fixture_suite.wasm -o components/fixture-suite/tests.lock
+
+# Regenerate the components baked into the CLI (compose-runner/run
+# defaults) after changing components/runner-cli or components/provider,
+# and commit the diff. Size-optimized `embed` profile; freshness is
+# gated behaviorally by verify-cli (no byte comparison — builds are not
+# reproducible across environments, #44).
+embed-update:
+    cargo build --target {{wasm_target}} --profile embed -p runner-cli -p provider
+    cp target/{{wasm_target}}/embed/runner_cli.wasm \
+        crates/component-test-cli/embedded/runner-cli.wasm
+    cp target/{{wasm_target}}/embed/provider.wasm \
+        crates/component-test-cli/embedded/provider.wasm
 
 # --- WIT ---------------------------------------------------------------
 

@@ -178,7 +178,9 @@ x86_64 Linux), wasmtime 47.0.3 / deltic pre-83fff30 / Node 24.
 
 Follow-up to the bench above: pre-build the registry at build time so
 fresh instances are born initialized. `wasmtime-wizer` 47 as a
-library; drivers: `wizer-preinit` bin (feature `wizer`) over the
+library; drivers: originally the `wizer-preinit` bin, since #85 the
+`wizen` module in component-test-runner (feature `wizer`) behind
+`component-test wizen`; measured over the
 bench-suite artifact built with its `wizer-init` feature.
 
 22. **Component-level pre-init works today (wasmtime-wizer 47) — #25's
