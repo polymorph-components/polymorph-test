@@ -11,13 +11,15 @@ suites' `wasi:{cli,clocks,io,random,filesystem}` leaves.
 
 ```sh
 cargo build --target wasm32-wasip2 --release -p sample-suite   # from repo root
-translator=$(deno run --allow-read=js/runner-deltic,target --allow-write=target \
-    --allow-net=github.com,objects.githubusercontent.com,release-assets.githubusercontent.com \
-    js/runner-deltic/fetch-deltic.ts --asset translator)
 deno run --allow-read=target --config js/runner-deltic/deno.json --frozen \
     js/runner-deltic/runner.ts target/wasm32-wasip2/release/sample_suite.wasm \
-    --translator "$translator" [--jsonl]
+    [--jsonl]
 ```
+
+No fetch step and no extra permissions: the translator arrives with the
+pinned `@deltic/translator` package and loads through the module graph
+(`defaultTranslator()`). `--translator <wasm>` remains as a documented
+escape hatch for an externally-sourced translator build.
 
 Human mode reproduces `expected/verify-run-sample.txt` byte-for-byte
 (shared with the composed-cli and jco legs); `--jsonl` emits canonical
@@ -35,9 +37,9 @@ cases out as `not-applicable`.
 `harness.mjs` case loop (striping, freshCases, timeouts, mark
 scheduling), no transpiled artifacts: the run message carries
 `{ bundleUrl, translatorUrl, suiteUrl, env?, missing?, only?, shard?,
-caseTimeoutMs? }` and the worker loads the pinned `deltic-embedder.mjs`
-release asset (one platform-neutral ES module: embedder API +
-Translator + runner glue + wasi shims). It drops into
+caseTimeoutMs? }` and the worker loads `deltic-embedder.mjs`, built by
+`just deltic-assets` from the pinned JSR graph (one platform-neutral
+ES module: embedder API + Translator + runner glue + wasi shims). It drops into
 `page-runner.mjs`'s `runSuitesInPage` via its `workerUrl` parameter —
 page runner and browser driver unchanged. `engine.mjs` is the shared
 glue; `selftest.mjs` drives the same engine path under plain `node`
@@ -60,19 +62,35 @@ bundleUrl-loading defaults.
 
 ## Pinning
 
-deltic is pinned to a release tag in **two** places, cross-checked at
-run time by `fetch-deltic.ts`:
+deltic is consumed from JSR as **exact-pinned unstable prereleases**:
+every green deltic `main` commit publishes
+`@deltic/{runtime,translator,wasi-shims,ct-runner}` as
+`0.1.0-pre.g<shorthash>`, so one version names one upstream commit
+(there is no stable line yet — hash versions are unordered and semver
+ranges never resolve to prereleases).
 
-- `deno.json` — import-map URLs (`raw.githubusercontent.com/lann/deltic/<tag>/…`);
-  `deno.lock` carries integrity hashes for that module graph and is
-  enforced with `--frozen`. The `@deltic/runtime/embedder` entry exists
-  because `wasi-shims` imports it by bare specifier (resolved by the
-  workspace config inside deltic; URL consumers must map it).
-- `fetch-deltic.ts` — `TAG` + per-asset sha256 for the
-  `deltic-translator-shim.wasm` and `deltic-embedder.mjs` release assets
-  (cached under `target/deltic/<tag>/`; `--asset translator|embedder`).
+- `deno.json` — the import map holds the five `jsr:@deltic/...@<version>`
+  specifiers. `@deltic/runtime/embedder` is mapped because
+  `@deltic/wasi-shims` imports it by bare specifier.
+  `minimumDependencyAge` exempts the `@deltic` scope so same-day
+  publishes resolve (Deno >= 2.9 for the wildcard exclude).
+- `deno.lock` — carries JSR package integrity for that graph and is
+  enforced with `--frozen` on every run, check, bundle, and
+  `deno info` invocation.
+- No sha256 bookkeeping and no release-asset downloads: the browser-leg
+  assets are built from the same locked graph by `just deltic-assets`
+  into `target/deltic-browser/` — `deltic-embedder.mjs` bundled from
+  `browser-bundle-entry.ts`, and `deltic-translator-shim.wasm` copied
+  out of the lock-pinned module cache (the packaged
+  `@deltic/translator` asset). The directory is version-free: the lock
+  owns versioning.
+- `just deltic-pin-gate` (a `verify-deltic` prerequisite, so it runs in
+  CI) asserts one version across every `@deltic` specifier in every
+  `deno.json` and everything the lock resolves — the successor to the
+  retired release-asset fetch script's `assertPinConsistency`.
 
-To bump: update the tag in both files and the shas from the release's
-`SHA256SUMS`, delete `deno.lock`, re-run
-`deno cache runner.ts fetch-deltic.ts` in this directory, regenerate the
-`expected/verify-deltic-*` goldens, and commit the diff.
+To bump: update the version in `deno.json`'s import map, delete
+`deno.lock`, re-run `deno install --entrypoint runner.ts
+browser-bundle-entry.ts` in this directory, and commit the diff; the pin
+gate asserts agreement. Regenerate the `expected/verify-deltic-*`
+goldens only if an explained upstream behavior change moves them.

@@ -1,5 +1,6 @@
 // Runtime-linked viewer engines (the jco replacement's Phase 4): the
-// pinned deltic release assets are deployed beside the viewer by
+// deltic browser assets (repo-built from the pinned JSR graph — see
+// js/runner-deltic/README.md) are deployed beside the viewer by
 // `just viewer-build` (locally and on Pages alike — same relative
 // layout), and the aggregation component is instantiated at first use.
 //

@@ -1,5 +1,6 @@
 // Shared engine glue for the deltic legs (browser shard worker + Node
-// selftest): load the pinned deltic embedder bundle, translate the suite
+// selftest): load the repo-built deltic embedder bundle (`just
+// deltic-assets`, from the pinned JSR graph), translate the suite
 // component, and hand back exactly what harness.mjs `runCases` needs.
 // deltic is a runtime linker — the suite arrives as the COMPONENT wasm
 // (no transpiled module, no core files, no imports module; WASI comes
