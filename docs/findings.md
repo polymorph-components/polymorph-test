@@ -162,12 +162,58 @@ x86_64 Linux), wasmtime 47.0.3 / deltic pre-83fff30 / Node 24.
     one-off ~16ms + ~25ms. Per-fresh-instance topologies are
     tolerable here only while per-instance work stays O(cases
     served), not O(suite).
-21. **`harness.mjs` fresh-instance relocation is the real JS-leg
-    quadratic**: `freshCases` re-finds the case by a linear
-    `name()` scan (harness.mjs `String(await c.name()) === name`), ≈
-    N/2 × 25µs ≈ **130ms per case** at 10k — ~20× the `all()` cost it
-    sits on top of. The contract guarantees `all()` order is
-    deterministic across instances, so positional relocation (index
-    into the fresh list + one `name()` verify) is sound and erases
-    the scan.
+21. **`harness.mjs` fresh-instance relocation was the real JS-leg
+    quadratic** (fixed — positional relocation, PR #83): `freshCases`
+    re-found each case by a linear `name()` scan. Hot-loop `name()`
+    costs ~3.4µs under deltic (a cold single call measures ~26µs —
+    promise/JIT overhead that amortizes), so the scan averaged ~N/2 ×
+    3.4µs ≈ **17ms per case** at 10k (33ms worst, measured), a
+    multiple of the `all()` re-enumeration it followed and O(N²)
+    across a run. The contract guarantees `all()` order is
+    deterministic across instances, so positional relocation (index +
+    one `name()` verify) is sound and erases it: 33.4ms → 0.0ms for
+    the last case at 10k.
+
+## Component-level wizer pre-initialization (#25)
+
+Follow-up to the bench above: pre-build the registry at build time so
+fresh instances are born initialized. `wasmtime-wizer` 47 as a
+library; drivers: `wizer-preinit` bin (feature `wizer`) over the
+bench-suite artifact built with its `wizer-init` feature.
+
+22. **Component-level pre-init works today (wasmtime-wizer 47,
+    library route) — #25's "core-module level only" constraint is
+    stale.** `Wizer::run_component` takes a caller-supplied
+    instantiate closure, so a custom linker can satisfy the suite's
+    `test-context` import (host resource + methods init never calls)
+    and full WASI (env reads during init work). The `wasmtime wizer`
+    CLI cannot express this today, for three separate reasons: the
+    invoke grammar rejects versioned interface qualifiers
+    (`polymorph:test/tests@0.1.0.all` — invalid token at the `@`);
+    unknown-import stubbing cannot synthesize **resource** types
+    ("resource implementation is missing"); and composed bundles fail
+    ("nested components with modules not currently supported"). The
+    init entry must therefore be a bare-named export
+    (`wizer-initialize: func()`, wizer's default) — bench-suite adds
+    it as a second inline-WIT world under its `wizer-init` feature,
+    and wasm-component-ld merges the two worlds. Two more edges:
+    `keep_init_func(false)` (the default) emits an invalid component
+    (dangling core-instance export reference; keep the init func);
+    custom sections **survive** the rewrite (tags inventory intact —
+    the runner's scheduling and drift checks work on the wizened
+    artifact, unlike wac-composed bundles, finding 14).
+23. **wasmtime, wizened 10k suite: the registry-build half vanishes
+    exactly.** all#1 3.15ms → 663µs ≈ all#2; instantiate unchanged
+    (~19µs — CoW absorbs the 1.29MB snapshot, 122KB → 1.29MB); store
+    drop 80µs → 12µs (fewer runtime-dirtied pages). End-to-end K=1
+    full-isolation run: 30.8s → 7.1s sequential (4.3×), **1.14s at
+    jobs=8** — per-case isolation on a wizened suite undercuts the
+    shared-instance numbers that motivated relaxing isolation in #22.
+24. **deltic, wizened suite: net ~1.5× only.** all#1 6.9ms → 2.9ms,
+    but instantiate 0.78ms → 2.17ms: V8 has no CoW memory images, so
+    the 1.29MB active data segment is copied at every instantiation,
+    eating most of the build win (translate also 24ms → 44ms,
+    one-off). Wizening pays on JS legs only when enumeration is
+    genuinely expensive; instance-granularity K>1 remains the lever
+    there.
 

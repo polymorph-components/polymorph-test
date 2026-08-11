@@ -9,7 +9,7 @@
 //! is a measurement fixture, not a lockfile citizen — don't lock it.
 
 #[component_test_sdk::suite]
-mod bench {
+pub mod bench {
     use component_test_sdk::{ArcStr, Registry, Tags};
 
     /// Registers `bench/mint/c00000`..`c<N-1>`: leaf-only allocation,
@@ -30,4 +30,38 @@ mod bench {
             );
         }
     }
+
+    /// Force the registry build (pre-initialization hook; see
+    /// `wizer_init` below). Always compiled — `#[suite]` forbids
+    /// cfg-gated items inside the module tree.
+    pub fn force_registry_init() {
+        __ct_with_registry(|_| ());
+    }
+}
+
+/// Pre-initialization entry for the wizer experiment (#25): a second,
+/// bare-named world export (`wizer-initialize`, wizer's default init
+/// function) that forces the registry build so the snapshot carries it.
+/// Feature-gated and outside the `#[suite]` module — the plain bench
+/// artifact keeps the pure `suite` world. The versioned `tests`
+/// interface itself cannot be named as an init function (wasmtime's
+/// invoke grammar rejects `@0.1.0` qualifiers), hence the extra export.
+#[cfg(feature = "wizer-init")]
+mod wizer_init {
+    wit_bindgen::generate!({
+        inline: "
+            package bench:wizer;
+            world init {
+                export wizer-initialize: func();
+            }
+        ",
+        world: "init",
+    });
+    struct Init;
+    impl Guest for Init {
+        fn wizer_initialize() {
+            crate::bench::force_registry_init();
+        }
+    }
+    export!(Init);
 }

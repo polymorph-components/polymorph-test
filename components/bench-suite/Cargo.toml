@@ -8,3 +8,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 component-test-sdk = { workspace = true }
+wit-bindgen = { workspace = true, optional = true }
+
+[features]
+# Adds a bare `wizer-initialize` world export that forces the registry
+# build, for `wasmtime wizer` pre-initialization experiments (#25).
+wizer-init = ["dep:wit-bindgen"]
