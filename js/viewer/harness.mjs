@@ -117,10 +117,13 @@ export function envelope(target, suite) {
  *
  * `freshCases` gives every case a fresh instance: census and striping
  * still come from `cases`, but each execution re-enumerates from the
- * factory and runs the matching case (a vanished case throws — drift,
- * unsound, not a failing case). For instantiation-mode transpiles this
- * is the wasmtime runner's instance-per-case granularity; module-mode
- * transpiles are singletons and cannot use it.
+ * factory and runs the case at the same census index — sound because
+ * enumeration order is deterministic across instances (the contract's
+ * enumeration rule), verified by one `name()` call (a missing or
+ * mismatched case throws — drift, unsound, not a failing case). For
+ * instantiation-mode transpiles this is the wasmtime runner's
+ * instance-per-case granularity; module-mode transpiles are singletons
+ * and cannot use it.
  *
  * `caseTimeoutMs` is the per-case wall bound (the runner's
  * `--case-timeout`): on expiry the case fails with
@@ -179,16 +182,22 @@ export async function runCases({
     }
     let executed = testCase;
     if (freshCases) {
+      // Positional relocation: enumeration order is deterministic
+      // across instances of one artifact (the contract's enumeration
+      // rule), so the case sits at the same census index in the fresh
+      // list — O(1) instead of a name() scan per case, which at 10^4
+      // scale costs ~N/2 boundary calls per case and dominates the
+      // whole loop (~130ms/case under deltic). One name() call
+      // verifies; disagreement is enumeration drift — unsound run,
+      // not a failing case.
       const fresh = await freshCases();
-      executed = undefined;
-      for (const c of fresh) {
-        if (String(await c.name()) === name) {
-          executed = c;
-          break;
-        }
-      }
-      if (!executed) {
-        throw new Error(`case ${name} vanished on re-enumeration`);
+      executed = fresh[caseIndex];
+      const relocated = executed && String(await executed.name());
+      if (relocated !== name) {
+        throw new Error(
+          `case ${name} not at census index ${caseIndex} on re-enumeration ` +
+            `(found ${relocated || "nothing"}): enumeration order drifted`,
+        );
       }
     }
     const diags = [];
