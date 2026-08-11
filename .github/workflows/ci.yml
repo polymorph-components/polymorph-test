@@ -111,7 +111,9 @@ jobs:
   # consumer Cargo.lock pins this very commit, the action installs the
   # tools from the checkout (source-path), and its pins gate must hold
   # the fixture to that rev. Asserts the advertised outputs and bin
-  # names on top.
+  # names, then drives the installed binaries over a built suite the
+  # way a consumer's CI would — including the wizen path (#85), which
+  # ships inside the CLI rather than as a separate tool.
   actions-setup-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -152,3 +154,27 @@ jobs:
           test "${{ steps.setup.outputs.rev }}" = "${{ github.sha }}"
           test -x "${{ steps.setup.outputs.bin }}/component-test"
           test -x "${{ steps.setup.outputs.bin }}/ct-runner"
+
+      - name: Build the synthetic consumer's suite artifact
+        run: cargo build --target wasm32-wasip2 --release -p sample-suite
+
+      - name: Exercise the installed tools on the suite
+        # The post-setup consumer path, via the installed binaries only
+        # (no wac, no wasmtime CLI in this job): wizen the artifact
+        # (#85 — one line in a consumer's CI), hold the committed
+        # lockfile against it (inventory survives pre-init, finding
+        # #22), then reproduce both runner goldens from it — the
+        # host-embed runner and the CLI's composed `run` leg.
+        run: |
+          set -euo pipefail
+          bin="${{ steps.setup.outputs.bin }}"
+          suite=target/wasm32-wasip2/release/sample_suite.wasm
+          wizened="$RUNNER_TEMP/consumer/sample_suite.wizened.wasm"
+          "$bin/component-test" wizen "$suite" -o "$wizened"
+          "$bin/component-test" lock "$wizened" --check components/sample-suite/tests.lock
+          out=$("$bin/ct-runner" "$wizened") && code=0 || code=$?
+          test "$code" -eq 1
+          diff expected/verify-embed-sample.txt <(printf '%s\n' "$out")
+          out=$("$bin/component-test" run --jsonl "$wizened") && code=0 || code=$?
+          test "$code" -eq 1
+          diff expected/verify-compose-sample.jsonl <(printf '%s\n' "$out")
