@@ -129,3 +129,103 @@ Rust `wasm32-wasip2` target.
     WASI sleep: `std::thread::sleep` on wasip2 suspends in the host's
     async `poll`, no wasm executing). Hence `hang/wedge` sleeps via
     WASI rather than awaiting `pending()`.
+
+## Handle mint/lift at scale (bench-suite; #22/#25 context)
+
+Synthetic measurement of the `all()` protocol per fresh instance —
+N trivially-passing cases, no corpus, no per-case data
+(`components/bench-suite`, count via `BENCH_CASES` env). Drivers:
+`bench-mint` bin (wasmtime, production `Runner` config: pooling, CoW,
+epoch instrumentation, untyped `Val` calls) and
+`js/runner-deltic/bench-mint.mjs` (pinned deltic embedder, plain
+Node). Medians over 20/10 fresh instances, one dev box (17-core
+x86_64 Linux), wasmtime 47.0.3 / deltic pre-83fff30 / Node 24.
+
+19. **wasmtime: `all()` splits ~3:1 registry-build : mint+lift, both
+    linear.** At 10k cases: all#1 (build + mint + lift) 3.2ms, all#2
+    (mint + lift only, registry cached) 0.79ms ≈ **75–80ns/handle**;
+    registry build (the OnceCell `IndexMap` + boxed-closure loop) ≈
+    240ns/case. Instantiate 21µs; store drop 83µs at 10k (scales with
+    lifted-handle count); `name`/`run` boundary calls 2–3µs each.
+    Instance-per-case on a 10k suite therefore pays ~3.3ms/case of
+    pure protocol overhead (matches #22's campaign arithmetic), and
+    the guest-side registry build — not the handle lift — is the
+    larger share, so SDK-side table work (static case table, #25
+    wizer) buys more than lift avoidance alone; a direct-access
+    interface caps out at ~25% unless stacked on a lazy/static
+    registry.
+20. **deltic (runtime linker, callback ABI): same shape, bigger
+    constants.** Instantiate ~650µs (~30× wasmtime); mint+lift
+    ~340–370ns/handle (~4.3×; mildly superlinear by 30k — V8 GC on
+    the wrapper objects); per-call boundary overhead ~25µs (~10×);
+    all#1 at 10k ≈ 5.2ms. Translator init + component translate are
+    one-off ~16ms + ~25ms. Per-fresh-instance topologies are
+    tolerable here only while per-instance work stays O(cases
+    served), not O(suite).
+21. **`harness.mjs` fresh-instance relocation was the real JS-leg
+    quadratic** (fixed — positional relocation, PR #83): `freshCases`
+    re-found each case by a linear `name()` scan. Hot-loop `name()`
+    costs ~3.4µs under deltic (a cold single call measures ~26µs —
+    promise/JIT overhead that amortizes), so the scan averaged ~N/2 ×
+    3.4µs ≈ **17ms per case** at 10k (33ms worst, measured), a
+    multiple of the `all()` re-enumeration it followed and O(N²)
+    across a run. The contract guarantees `all()` order is
+    deterministic across instances, so positional relocation (index +
+    one `name()` verify) is sound and erases it: 33.4ms → 0.0ms for
+    the last case at 10k.
+
+## Component-level wizer pre-initialization (#25)
+
+Follow-up to the bench above: pre-build the registry at build time so
+fresh instances are born initialized. `wasmtime-wizer` 47 as a
+library; drivers: `wizer-preinit` bin (feature `wizer`) over the
+bench-suite artifact built with its `wizer-init` feature.
+
+22. **Component-level pre-init works today (wasmtime-wizer 47) — #25's
+    "core-module level only" constraint is stale — and the suite needs
+    no init export: the contract's own `all()` is the init function.**
+    Named in the *version-last* invoke syntax,
+    `polymorph:test/tests.all@0.1.0()` — the wave/`ItemName` grammar
+    places `@version` after the item name to resolve the dot
+    ambiguity (`pkg:ns/iface.func@1.2.3`), and rejects the
+    export-name-order form `pkg:ns/iface@1.2.3.func` by design (the
+    resulting "invalid token" error points at the run-command docs
+    and hints at neither). The parenthesized wave-call form is
+    required: the bare item-name path demands a `[] -> []` signature,
+    and `all` has a result. The returned handles are per-call state;
+    only the built registry lands in the snapshot (measured: same
+    size as via a dedicated no-op init export, ±3KB). Wizening a
+    *suite* still needs wasmtime-wizer as a library —
+    `Wizer::run_component` takes a caller-supplied instantiate
+    closure, so a custom linker satisfies `test-context` (a host
+    resource whose methods init never calls) plus full WASI (env
+    reads during init work) — because the CLI cannot: unknown-import
+    stubbing cannot synthesize **resource** types ("resource
+    implementation is missing"), composed bundles fail ("nested
+    components with modules not currently supported"), and the CLI
+    additionally defaults WASI *off* for wizening (`-S cli`
+    required for env-reading inits). Two upstream edges:
+    `keep_init_func(false)` — moot here (stripping would remove
+    `tests.all`) — emits an invalid component for dedicated init
+    exports (dangling core-instance export reference; known,
+    bytecodealliance/wasmtime#13168); and the wave func-name lexer's
+    semver subpattern is bare `X.Y.Z`, so prerelease-versioned
+    interfaces (`@0.3.0-rc-…`) cannot be named in call form. Custom
+    sections **survive** the rewrite (tags inventory intact — the
+    runner's scheduling and drift checks work on the wizened
+    artifact, unlike wac-composed bundles, finding 14).
+23. **wasmtime, wizened 10k suite: the registry-build half vanishes
+    exactly.** all#1 3.15ms → 663µs ≈ all#2; instantiate unchanged
+    (~19µs — CoW absorbs the 1.29MB snapshot, 122KB → 1.29MB); store
+    drop 80µs → 12µs (fewer runtime-dirtied pages). End-to-end K=1
+    full-isolation run: 30.8s → 7.1s sequential (4.3×), **1.14s at
+    jobs=8** — per-case isolation on a wizened suite undercuts the
+    shared-instance numbers that motivated relaxing isolation in #22.
+24. **deltic, wizened suite: net ~1.5× only.** all#1 6.9ms → 2.9ms,
+    but instantiate 0.78ms → 2.17ms: V8 has no CoW memory images, so
+    the 1.29MB active data segment is copied at every instantiation,
+    eating most of the build win (translate also 24ms → 44ms,
+    one-off). Wizening pays on JS legs only when enumeration is
+    genuinely expensive; instance-granularity K>1 remains the lever
+    there.
+

@@ -1,0 +1,10 @@
+[package]
+name = "bench-suite"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+component-test-sdk = { workspace = true }
