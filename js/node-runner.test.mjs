@@ -68,7 +68,15 @@ const counts = await runSuiteJsonl({
   missing: ["hsm"],
   emit: (line) => lines.push(line),
 });
-assert.deepEqual(counts, { passed: 1, failed: 1, skipped: 0, na: 1, total: 3 });
+assert.deepEqual(counts, {
+  passed: 1,
+  failed: 1,
+  skipped: 0,
+  na: 1,
+  deselected: 0,
+  selected: 3,
+  total: 3,
+});
 assert.equal(lines.length, 5, "envelope + three events + terminator");
 const head = JSON.parse(lines[0]);
 assert.equal(head.suite.name, "sample_suite", "envelope normalizes the transpile name");
@@ -82,6 +90,60 @@ assert.deepEqual(
 assert.equal(events[1].detail, "boom");
 // census + one fresh instance per executed case (the N/A case never runs)
 assert.equal(instances, 3);
+
+// `only` reports the unselected census as deselected (#89): full
+// coverage, subsetting visible, capability (not-applicable) winning
+// over selection, deselected cases never executed.
+{
+  const lines = [];
+  const before = instances;
+  const counts = await runSuiteJsonl({
+    newTests,
+    tagsOf: (name) => tags[name],
+    target: "stub-target",
+    suiteName: "sample-suite",
+    missing: ["hsm"],
+    only: "pass",
+    emit: (line) => lines.push(line),
+  });
+  assert.deepEqual(counts, {
+    passed: 1,
+    failed: 0,
+    skipped: 0,
+    na: 1,
+    deselected: 1,
+    selected: 1,
+    total: 3,
+  });
+  const events = lines.slice(1, -1).map((l) => JSON.parse(l));
+  assert.deepEqual(
+    events.map((e) => [e.case, e.status]),
+    [
+      ["basic/pass", "pass"],
+      ["basic/fail", "deselected"],
+      ["gated/probe", "not-applicable"],
+    ],
+  );
+  assert.equal(events[1].detail, "only pass");
+  assert.equal(events[1].provenance, undefined, "deselected cases never executed");
+  // census + one fresh instance for the one executed case
+  assert.equal(instances - before, 2);
+}
+
+// A selection matching nothing is a run error, like the reference runner.
+await assert.rejects(
+  () =>
+    runSuiteJsonl({
+      newTests,
+      tagsOf: (name) => tags[name],
+      target: "t",
+      suiteName: "s",
+      missing: ["hsm"],
+      only: "zzz",
+      emit: () => {},
+    }),
+  /only `zzz` matches no cases \(empty selection is a run error\)/,
+);
 
 await assert.rejects(
   () =>

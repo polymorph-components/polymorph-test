@@ -198,6 +198,4 @@ Capability takes precedence: a tags-excluded case stays
 aggregation's applicability policing rejects `deselected` where the
 manifest says the case could never have run (selection must not hide
 capability). An empty selection (`--only` matching nothing) is a run
-error, not a vacuous green. (The JS leg's `only` option predates this
-rule and still omits filtered cases instead of reporting them —
-tracked in #89.)
+error, not a vacuous green.
