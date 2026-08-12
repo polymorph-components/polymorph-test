@@ -68,8 +68,9 @@ wac-graph = "0.10"
 opt-level = "s"
 strip = true
 
-# The components baked into the CLI (`just embed-update`): size over
-# speed — they ship inside every `component-test` binary.
+# The components the CLI builds into itself (crates/component-test-cli
+# build.rs): size over speed — they ship inside every `component-test`
+# binary.
 [profile.embed]
 inherits = "release"
 opt-level = "z"

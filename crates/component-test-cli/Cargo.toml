@@ -10,6 +10,15 @@ repository.workspace = true
 name = "component-test"
 path = "src/main.rs"
 
+[features]
+default = ["embedded-components"]
+# Build components/runner-cli and components/provider from source at
+# compile time (wasm32-wasip2, `embed` profile) as the
+# compose-runner/run defaults — see build.rs. Disable for a host-only
+# CLI (reporting/aggregation consumers, no wasm target required);
+# compose-runner/run then require explicit --runner/--provider.
+embedded-components = []
+
 [dependencies]
 component-test-core = { workspace = true }
 component-test-formats = { workspace = true }

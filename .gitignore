@@ -1,8 +1,5 @@
 target/
 *.wasm
-# The components baked into the CLI are committed (regenerate with
-# `just embed-update`; `just verify-cli` gates their behavior).
-!crates/component-test-cli/embedded/*.wasm
 node_modules/
 
 # Prebuilt CLI/runner binaries for downstream consumers (their build

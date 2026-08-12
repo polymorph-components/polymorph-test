@@ -84,7 +84,11 @@ runs:
           exit 0
         fi
         root="$RUNNER_TEMP/component-test-cli"
-        cargo install -q --locked --root "$root" \
+        # Host-only build: aggregation never composes, and the slim
+        # feature set keeps this fallback runnable on runners without
+        # the wasm32-wasip2 target (the default features build the
+        # embedded components from source at compile time).
+        cargo install -q --locked --root "$root" --no-default-features \
           --git https://github.com/polymorph-components/polymorph-test \
           --rev "${ACTION_REF:-main}" component-test-cli
         echo "CT_CLI=$root/bin/component-test" >> "$GITHUB_ENV"

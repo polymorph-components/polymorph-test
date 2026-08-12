@@ -11,12 +11,14 @@
 //! plus `test-context` plus `factory`) skip the provider and plug
 //! straight into the runner core.
 //!
-//! The default provider and runner core are baked in at build time from
-//! `embedded/` (size-optimized `embed`-profile builds of
-//! `components/provider` and `components/runner-cli`; regenerate with
-//! `just embed-update` and commit the diff — `just verify-cli` gates
-//! their behavior against the same goldens as the wac-composed path).
-//! Both are overridable per invocation.
+//! The default provider and runner core are built from their sources
+//! (`components/provider`, `components/runner-cli`) at compile time by
+//! build.rs — size-optimized `embed`-profile wasm32-wasip2 builds, so
+//! they can never drift from the sources (#88). `just verify-cli`
+//! gates their behavior against the same goldens as the wac-composed
+//! path. Both are overridable per invocation, and a
+//! `--no-default-features` build (host-only consumers) omits them
+//! entirely — the flags become required.
 //!
 //! Composition strips custom sections (findings #14): the result is
 //! execute-everything, its envelope says `scheduling: none`, and
@@ -27,10 +29,31 @@ use anyhow::{bail, Context as _, Result};
 use wac_graph::types::Package;
 use wac_graph::{CompositionGraph, EncodeOptions, NodeId, PackageId};
 
-/// The wasi:cli runner core (`components/runner-cli`), `embed` profile.
-pub const EMBEDDED_RUNNER: &[u8] = include_bytes!("../embedded/runner-cli.wasm");
-/// The reference context provider (`components/provider`), `embed` profile.
-pub const EMBEDDED_PROVIDER: &[u8] = include_bytes!("../embedded/provider.wasm");
+/// The wasi:cli runner core (`components/runner-cli`), when this build
+/// carries it (feature `embedded-components`).
+pub fn embedded_runner() -> Option<&'static [u8]> {
+    #[cfg(feature = "embedded-components")]
+    {
+        Some(include_bytes!(concat!(env!("OUT_DIR"), "/runner_cli.wasm")))
+    }
+    #[cfg(not(feature = "embedded-components"))]
+    {
+        None
+    }
+}
+
+/// The reference context provider (`components/provider`), when this
+/// build carries it (feature `embedded-components`).
+pub fn embedded_provider() -> Option<&'static [u8]> {
+    #[cfg(feature = "embedded-components")]
+    {
+        Some(include_bytes!(concat!(env!("OUT_DIR"), "/provider.wasm")))
+    }
+    #[cfg(not(feature = "embedded-components"))]
+    {
+        None
+    }
+}
 
 /// The frozen contract interfaces (wit/tests.wit; L1) and the provider
 /// interface the reference runner core consumes.
