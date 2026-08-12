@@ -230,4 +230,19 @@ bench-suite artifact built with its `wizer-init` feature.
     one-off). Wizening pays on JS legs only when enumeration is
     genuinely expensive; instance-granularity K>1 remains the lever
     there.
+25. **wasm-opt post-pass on wizened artifacts: no meaningful
+    clawback, and blocked at the component level anyway.** binaryen
+    v124 refuses components outright (binaryen#6728). The bound holds
+    regardless: the wizened bench artifact's growth is snapshot
+    *data* — 1.18MB across 10,002 data segments vs 93KB of code in
+    the 1.29MB artifact (`wasm-tools objdump`) — so even total code
+    deletion reclaims ≤7.2%. Measured on the extracted core module
+    (byte range from objdump; no supported round-trip back into a
+    component exists): `wasm-opt -Oz` saves 19.5KB, 1.5% of the
+    artifact. #25's "init-only code goes dead after snapshotting"
+    hypothesis is immaterial in this shape: the case bodies stay live
+    through the snapshotted case table — only the one-shot
+    registration driver dies, and it is small. CoW already makes the
+    on-disk growth near-free at runtime (finding 23); transport
+    compression covers the wire.
 

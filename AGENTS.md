@@ -79,6 +79,9 @@ js/viewer/            results viewer + live browser harness (#46/#5): the
 examples/compose/     wac composition walkthrough (bundle-then-plug)
 expected/             golden outputs diffed by the verify recipes
 docs/findings.md      toolchain findings log
+docs/runner-policy.md runner execution policy (#22): granularity,
+                      replication, budgets, wizening — guidance with
+                      the measurement campaigns, not contract
 ```
 
 **WIT deps are symlinks; suites have none.** `components/provider` and

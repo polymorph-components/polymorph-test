@@ -6,6 +6,11 @@
 //! (component-model-async), so calls go through wasmtime's concurrent
 //! API; host-side `diagnostic` is a concurrent host function.
 //!
+//! The execution policy implemented here — instance granularity,
+//! replication/striping, layered budgets, no retries, selection vs
+//! capability — is documented with its measurements in
+//! `docs/runner-policy.md`.
+//!
 //! Env knobs: `COMPONENT_TEST_PROFILE=1` prints per-session enumeration
 //! timings to stderr (double-enumerates each session to separate
 //! registry construction from lifting cost).
@@ -187,6 +192,9 @@ pub enum OutputMode {
 #[derive(Debug, Default)]
 pub struct Summary {
     pub not_applicable: usize,
+    /// Census cases outside the `only` selection: reported (as
+    /// `deselected` wire events), never executed.
+    pub deselected: usize,
     pub passed: usize,
     pub failed: usize,
     pub skipped: usize,
@@ -194,7 +202,7 @@ pub struct Summary {
 
 impl Summary {
     pub fn total(&self) -> usize {
-        self.passed + self.failed + self.skipped + self.not_applicable
+        self.passed + self.failed + self.skipped + self.not_applicable + self.deselected
     }
 }
 
@@ -650,9 +658,12 @@ impl<D: RunnerView + 'static> Runner<D> {
         .await
     }
 
-    /// `only`: run only cases whose name contains the substring (a
-    /// dev-loop filter; filtered cases are omitted from output, so
-    /// filtered runs will not aggregate cleanly — by design).
+    /// `only`: run only cases whose name contains the substring. The
+    /// rest of the census is reported as `deselected` (never executed),
+    /// so filtered runs still fold and aggregate cleanly, with the
+    /// subsetting visible as selection policy — never conflated with
+    /// capability (`not-applicable`, which takes precedence for cases
+    /// excluded by tags). A filter matching nothing is a run error.
     ///
     /// `case_execution_budget_secs`: budget on actual wasm *execution*
     /// per case — the executing thread's CPU time, sampled at epoch
@@ -850,16 +861,31 @@ impl<D: RunnerView + 'static> Runner<D> {
             }
         }
 
-        // Scheduler pre-pass: census order, each entry either runs or
-        // is not-applicable (with the excluding tag).
+        // Scheduler pre-pass: census order, each entry runs, is
+        // not-applicable (with the excluding tag), or is deselected by
+        // `--only`. Applicability wins over deselection: capability is
+        // a property of the target and is reported truthfully
+        // regardless of selection, while deselection only narrows the
+        // runnable set (#22's cost-tier rule — subsetting is selection
+        // policy, visible as such; it is also what aggregate's
+        // applicability policing expects of scheduled streams).
         enum Action {
             Run,
             NotApplicable(String),
+            Deselected,
+        }
+        // Same normative rule as the zero-enumeration guard above: a
+        // `--only` substring matching nothing is an empty selection (a
+        // typo'd filter must not exit green with the whole census
+        // deselected).
+        if let Some(o) = only {
+            if !names.iter().any(|n| n.contains(o)) {
+                bail!("--only `{o}` matches no cases (empty selection is a run error)");
+            }
         }
         let plan: Vec<(usize, &String, Action)> = names
             .iter()
             .enumerate()
-            .filter(|(_, name)| only.is_none_or(|o| name.contains(o)))
             .map(|(index, name)| {
                 let action = match (&inventory, tags_of(name)) {
                     (Some(_), Some(tags)) if !tags.applies(missing_features) => {
@@ -869,20 +895,12 @@ impl<D: RunnerView + 'static> Runner<D> {
                                 .unwrap_or_default(),
                         )
                     }
+                    _ if !only.is_none_or(|o| name.contains(o)) => Action::Deselected,
                     _ => Action::Run,
                 };
                 (index, name, action)
             })
             .collect();
-        // Same normative rule as the zero-enumeration guard above: a
-        // `--only` substring matching nothing is an empty selection (a
-        // typo'd filter must not exit green with "0 total").
-        if plan.is_empty() {
-            bail!(
-                "--only `{}` matches no cases (empty selection is a run error)",
-                only.unwrap_or_default()
-            );
-        }
 
         // Parallel path: workers own stores; results are collected and
         // emitted in census order below.
@@ -934,24 +952,51 @@ impl<D: RunnerView + 'static> Runner<D> {
 
         let mut session: Option<Session<D>> = None;
         for (index, enumerated_name, action) in plan {
-            if let Action::NotApplicable(mark) = action {
-                summary.not_applicable += 1;
-                if human {
-                    println!("test {enumerated_name}: N/A ({mark})");
-                } else {
-                    let event = Event::Case(CaseResult {
-                        case: enumerated_name.clone(),
-                        status: Status::NotApplicable,
-                        provenance: None,
-                        detail: Some(mark),
-                        seed: None,
-                        duration_ms: None,
-                        diagnostics: vec![],
-                        diagnostics_complete: true,
-                    });
-                    println!("{}", serde_json::to_string(&event)?);
+            match action {
+                Action::NotApplicable(mark) => {
+                    summary.not_applicable += 1;
+                    if human {
+                        println!("test {enumerated_name}: N/A ({mark})");
+                    } else {
+                        let event = Event::Case(CaseResult {
+                            case: enumerated_name.clone(),
+                            status: Status::NotApplicable,
+                            provenance: None,
+                            detail: Some(mark),
+                            seed: None,
+                            duration_ms: None,
+                            diagnostics: vec![],
+                            diagnostics_complete: true,
+                        });
+                        println!("{}", serde_json::to_string(&event)?);
+                    }
+                    continue;
                 }
-                continue;
+                // Deselected cases stay silent per-case in human mode
+                // (a narrow `--only` over a large corpus must not bury
+                // the selected cases under thousands of lines; the
+                // summary carries the count) but every one is a wire
+                // event: coverage folds and aggregation need the whole
+                // census reported, and the rows make the subsetting
+                // visible as selection policy rather than silence.
+                Action::Deselected => {
+                    summary.deselected += 1;
+                    if !human {
+                        let event = Event::Case(CaseResult {
+                            case: enumerated_name.clone(),
+                            status: Status::Deselected,
+                            provenance: None,
+                            detail: only.map(|o| format!("--only {o}")),
+                            seed: None,
+                            duration_ms: None,
+                            diagnostics: vec![],
+                            diagnostics_complete: true,
+                        });
+                        println!("{}", serde_json::to_string(&event)?);
+                    }
+                    continue;
+                }
+                Action::Run => {}
             }
 
             if human {
@@ -1025,8 +1070,15 @@ impl<D: RunnerView + 'static> Runner<D> {
         }
 
         if human {
+            // The deselected segment appears only when a selection was
+            // in force, so unfiltered output stays byte-identical.
+            let deselected = if summary.deselected > 0 {
+                format!(", {} deselected", summary.deselected)
+            } else {
+                String::new()
+            };
             println!(
-                "\nresult: {} passed, {} failed, {} skipped, {} not applicable, {} total",
+                "\nresult: {} passed, {} failed, {} skipped, {} not applicable{deselected}, {} total",
                 summary.passed,
                 summary.failed,
                 summary.skipped,

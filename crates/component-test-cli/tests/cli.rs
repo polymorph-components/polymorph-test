@@ -179,6 +179,38 @@ fn fold_duplicate_case_fails_coverage() {
     assert!(out.stdout.contains("more than once"), "{}", out.stdout);
 }
 
+/// Deselected rows (a runner's `--only` subsetting, #22) satisfy
+/// coverage: the whole census is reported, the subsetting is visible,
+/// and nothing failed — exit 0.
+#[test]
+fn fold_deselected_rows_cover() {
+    let lock = tmpfile("deselected.lock", LOCK_XY);
+    let jsonl = stream(
+        &[
+            r#"{"case":"a/x","status":"pass"}"#,
+            r#"{"case":"a/y","status":"deselected","detail":"--only x"}"#,
+        ],
+        true,
+    );
+    let out = fold_with(&lock, &jsonl);
+    assert_eq!(
+        out.code, 0,
+        "stdout: {}\nstderr: {}",
+        out.stdout, out.stderr
+    );
+    assert!(
+        out.stdout.contains("DESELECTED: a/y — --only x"),
+        "{}",
+        out.stdout
+    );
+    assert!(
+        out.stdout
+            .contains("2 results (terminated): 1 deselected, 1 pass"),
+        "{}",
+        out.stdout
+    );
+}
+
 #[test]
 fn fold_unknown_status_fails() {
     let lock = tmpfile("unknown.lock", LOCK_XY);
