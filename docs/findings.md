@@ -244,5 +244,13 @@ bench-suite artifact built with its `wizer-init` feature.
     through the snapshotted case table — only the one-shot
     registration driver dies, and it is small. CoW already makes the
     on-disk growth near-free at runtime (finding 23); transport
-    compression covers the wire.
+    compression covers the wire. `wasm-tools strip` is no substitute
+    and a trap besides: it *does* process components, but saves only
+    4.9KB (0.38% — `[profile.release] strip = true` already removed
+    the heavy custom sections at build time), and its default keep
+    list is `name`/`component-type`/`dylink.0` only, so it deletes
+    `component-test:tags@0.1` — scheduling and `lock --check` break
+    exactly as the CLI's "sections stripped" error anticipates. If it
+    must run, name sections explicitly with `--delete`; never the
+    default form.
 
