@@ -35,13 +35,14 @@ async function suiteOf(path, env) {
   });
 }
 
-async function run(engine, { missing = [], shard } = {}) {
+async function run(engine, { missing = [], only, shard } = {}) {
   const events = [];
   const counts = await runCases({
     cases: await (await engine.newTests()).all(),
     Context: engine.Context,
     tagsOf: engine.tagsOf,
     missing,
+    only,
     shard,
     emit: (event, index) => events.push({ index, event }),
     freshCases: async () => (await engine.newTests()).all(),
@@ -54,7 +55,15 @@ async function run(engine, { missing = [], shard } = {}) {
 {
   const engine = await suiteOf(samplePath);
   const { counts, events } = await run(engine);
-  assert.deepEqual(counts, { passed: 1, failed: 1, skipped: 1, na: 0, total: 3 });
+  assert.deepEqual(counts, {
+    passed: 1,
+    failed: 1,
+    skipped: 1,
+    na: 0,
+    deselected: 0,
+    selected: 3,
+    total: 3,
+  });
   const byCase = Object.fromEntries(events.map((e) => [e.case, e]));
   assert.equal(byCase["sample/math/add"].status, "pass");
   assert.equal(byCase["sample/math/mul"].status, "fail");
@@ -66,7 +75,15 @@ async function run(engine, { missing = [], shard } = {}) {
 {
   const engine = await suiteOf(fixturePath);
   const { counts, events } = await run(engine, { missing: ["hsm"] });
-  assert.deepEqual(counts, { passed: 6, failed: 1, skipped: 0, na: 1, total: 8 });
+  assert.deepEqual(counts, {
+    passed: 6,
+    failed: 1,
+    skipped: 0,
+    na: 1,
+    deselected: 0,
+    selected: 8,
+    total: 8,
+  });
   const byCase = Object.fromEntries(events.map((e) => [e.case, e]));
   assert.equal(byCase["fixture/trap/boom"].status, "fail");
   assert.equal(byCase["fixture/trap/boom"].provenance, "trap");
@@ -80,6 +97,37 @@ async function run(engine, { missing = [], shard } = {}) {
   });
   assert.equal(byCase["fixture/hsm/declined"].status, "pass");
   console.log("selftest: fixture trap + tag scheduling ok");
+
+  // Selection (#89): the unselected census is reported deselected —
+  // full coverage, never executed, capability winning over selection
+  // (hsm/attest stays not-applicable outside the filter, exactly the
+  // reference runner's precedence). The trap case is outside the
+  // selection: nothing fails.
+  const sub = await run(engine, { missing: ["hsm"], only: "gen" });
+  assert.deepEqual(sub.counts, {
+    passed: 2,
+    failed: 0,
+    skipped: 0,
+    na: 1,
+    deselected: 5,
+    selected: 2,
+    total: 8,
+  });
+  const subByCase = Object.fromEntries(sub.events.map((e) => [e.case, e]));
+  assert.deepEqual(subByCase["fixture/trap/boom"], {
+    case: "fixture/trap/boom",
+    status: "deselected",
+    detail: "only gen",
+  });
+  assert.equal(subByCase["fixture/hsm/attest"].status, "not-applicable");
+  assert.equal(subByCase["fixture/gen/tc1"].status, "pass");
+  assert.equal(sub.events.length, 8, "full census reported");
+  // A selection matching nothing is a run error, not a vacuous green.
+  await assert.rejects(
+    () => run(engine, { only: "zzz" }),
+    /empty selection is a run error/,
+  );
+  console.log("selftest: only -> deselected census ok");
 
   // Striping partition equality (harness semantics over the deltic engine):
   // two shards merge to the full counts, disjoint cases, full union.

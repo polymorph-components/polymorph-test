@@ -73,13 +73,24 @@ export async function runSuitesInPage({ workerUrl, suites, jobs }) {
       );
       const events = shards.flatMap((s) => s.events);
       events.sort((a, b) => a.index - b.index);
+      const counts = mergeCounts(shards.map((s) => s.counts));
+      // The empty-selection rule over the whole pool: single stripes
+      // may legitimately match nothing (harness.mjs suppresses its
+      // per-census guard when sharded), so the merged census is where
+      // a dead filter surfaces.
+      if (config.only && counts.selected === 0) {
+        throw new Error(
+          `suite ${suite}: only \`${config.only}\` matches no cases ` +
+            "(empty selection is a run error)",
+        );
+      }
       out[key] = {
         lines: [
           JSON.stringify(envelope(target, suite)),
           ...events.map((e) => JSON.stringify(e.event)),
           '{"segment-end":true}',
         ],
-        counts: mergeCounts(shards.map((s) => s.counts)),
+        counts,
       };
     }
     window.__report(out);

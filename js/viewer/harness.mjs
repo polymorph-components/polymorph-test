@@ -143,12 +143,23 @@ export function envelope(target, suite) {
  * @param {new (onDiagnostic: (msg: string) => void) => object} options.Context
  * @param {(name: string) => string[] | undefined} options.tagsOf
  * @param {string[]} options.missing
- * @param {string} [options.only]  Substring filter (skips emit entirely).
+ * @param {string} [options.only]  Substring selection: census cases
+ *   outside it are reported `deselected` (never executed) rather than
+ *   omitted, so subset runs keep full coverage with the subsetting
+ *   visible as selection policy (docs/runner-policy.md "Selection is
+ *   not capability"). Capability wins: a tags-excluded case stays
+ *   `not-applicable` even outside the selection. A filter matching no
+ *   census case throws (empty selection is a run error) when the loop
+ *   sees the whole census — unsharded; pooled coordinators apply the
+ *   same guard over merged counts.
  * @param {(event: object, index: number) => void} options.emit
  * @param {{ index: number, count: number }} [options.shard]
  * @param {() => Promise<Array>} [options.freshCases]
  * @param {number} [options.caseTimeoutMs]
- * @returns {Promise<{passed, failed, skipped, na, total}>}
+ * @returns {Promise<{passed, failed, skipped, na, deselected, selected, total}>}
+ *   `selected` counts census cases matching the selection (all of
+ *   them without `only`) regardless of applicability; `total` =
+ *   executed + na + deselected.
  */
 export async function runCases({
   cases,
@@ -162,22 +173,28 @@ export async function runCases({
   caseTimeoutMs,
 }) {
   const { index: shardIndex, count: shardCount } = shard ?? { index: 0, count: 1 };
-  let passed = 0, failed = 0, skipped = 0, na = 0, total = 0;
+  let passed = 0, failed = 0, skipped = 0, na = 0, deselected = 0, selected = 0, total = 0;
   for (const [caseIndex, testCase] of cases.entries()) {
     if (caseIndex % shardCount !== shardIndex) continue;
     total++;
     const name = String(await testCase.name());
-    if (only && !name.includes(only)) continue;
     const tags = tagsOf(name);
     if (tags === undefined) {
       throw new Error(`inventory drift: no tags record covers ${name}`);
     }
+    const isSelected = !only || name.includes(only);
+    if (isSelected) selected++;
     if (!applies(tags, missing)) {
       na++;
       const excluding = tags.find((t) =>
         t.startsWith("!") ? !missing.includes(t.slice(1)) : missing.includes(t)
       );
       emit({ case: name, status: "not-applicable", detail: excluding ?? "" }, caseIndex);
+      continue;
+    }
+    if (!isSelected) {
+      deselected++;
+      emit({ case: name, status: "deselected", detail: `only ${only}` }, caseIndex);
       continue;
     }
     let executed = testCase;
@@ -252,17 +269,26 @@ export async function runCases({
     if (diags.length > 0) event.diagnostics = diags;
     emit(event, caseIndex);
   }
-  return { passed, failed, skipped, na, total };
+  // The reference runner's empty-selection rule (a typo'd filter must
+  // not exit green with the whole census deselected), applied where
+  // the whole census is visible. Sharded stripes may legitimately
+  // match nothing; their coordinator guards over merged counts.
+  if (only && shardCount === 1 && selected === 0) {
+    throw new Error(`only \`${only}\` matches no cases (empty selection is a run error)`);
+  }
+  return { passed, failed, skipped, na, deselected, selected, total };
 }
 
 /** Merge per-shard `runCases` counts (shards partition the suite). */
 export function mergeCounts(parts) {
-  const out = { passed: 0, failed: 0, skipped: 0, na: 0, total: 0 };
+  const out = { passed: 0, failed: 0, skipped: 0, na: 0, deselected: 0, selected: 0, total: 0 };
   for (const c of parts) {
     out.passed += c.passed;
     out.failed += c.failed;
     out.skipped += c.skipped;
     out.na += c.na;
+    out.deselected += c.deselected ?? 0;
+    out.selected += c.selected ?? 0;
     out.total += c.total;
   }
   return out;
