@@ -5,8 +5,9 @@
 // (`polymorph:websocket/connections`, `polymorph:webcrypto/*`, …) that
 // the stock worker cannot supply: workers resolve no import maps, so the
 // host module and the deltic engine must arrive in ONE bundle or the
-// embedder module loads twice and `instanceof WitError` stops holding
-// across the boundary. The downstream pattern is a bundled worker entry:
+// embedder module loads twice and `instanceof ComponentException` stops
+// holding across the boundary. The downstream pattern is a bundled worker
+// entry:
 //
 //   // worker-entry.ts — deno bundle --platform browser
 //   import * as deltic from "./browser-bundle-entry.ts"; // jsr:@deltic/*
