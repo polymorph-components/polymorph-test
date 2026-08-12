@@ -99,15 +99,11 @@ verify-compose: build
     echo "verify-compose: output matches expected/ (incl. JSONL + cross-runner fold)"
 
 # Path 2b: the CLI's composition/execution subcommands (#85).
-# compose-runner (embedded provider + runner core) must reproduce Path
-# 2's goldens under the wasmtime CLI; run is the same composition under
+# compose-runner (embedded provider + runner core, built from source
+# by the CLI's build.rs — always current, #88) must reproduce Path 2's
+# goldens under the wasmtime CLI; run is the same composition under
 # the embedded wasmtime (human + JSONL legs); wizen pre-initializes
 # with inventory, scheduling, and runnability intact (findings 22–24).
-# This is also the embedded artifacts' freshness gate: behavioral drift
-# between components/{runner-cli,provider} and the committed
-# crates/component-test-cli/embedded/ copies fails the diffs
-# (byte-comparing builds across environments is off the table, #44) —
-# after changing those components run `just embed-update` and commit.
 verify-cli: build
     #!/usr/bin/env bash
     set -euo pipefail
@@ -420,18 +416,6 @@ lock-update: build
         {{release_dir}}/sample_suite.wasm -o components/sample-suite/tests.lock
     cargo run -q -p component-test-cli -- lock \
         {{release_dir}}/fixture_suite.wasm -o components/fixture-suite/tests.lock
-
-# Regenerate the components baked into the CLI (compose-runner/run
-# defaults) after changing components/runner-cli or components/provider,
-# and commit the diff. Size-optimized `embed` profile; freshness is
-# gated behaviorally by verify-cli (no byte comparison — builds are not
-# reproducible across environments, #44).
-embed-update:
-    cargo build --target {{wasm_target}} --profile embed -p runner-cli -p provider
-    cp target/{{wasm_target}}/embed/runner_cli.wasm \
-        crates/component-test-cli/embedded/runner-cli.wasm
-    cp target/{{wasm_target}}/embed/provider.wasm \
-        crates/component-test-cli/embedded/provider.wasm
 
 # --- WIT ---------------------------------------------------------------
 

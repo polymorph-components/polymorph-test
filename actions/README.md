@@ -36,8 +36,15 @@ The installed CLI carries the whole composition/execution surface —
 `wizen` (pre-initialize large suites, #25/#85), `compose-runner`, and
 `run` (embedded reference provider, runner core, and wasmtime) — so a
 consumer pipeline that only needs the composed path installs no wac
-and no wasmtime. Wizening in CI is one line after setup, on the built
-artifact:
+and no wasmtime. The embedded components are built from source by the
+CLI's build script, so installing with default features needs the
+`wasm32-wasip2` target (already in the toolchain of every repo that
+builds suites; measured cost ~zero — the wasm builds in the shadow of
+the CLI's own compile). A host-only CLI for wasm-free contexts
+installs with `--no-default-features`: `compose-runner`/`run` then
+require explicit `--runner`/`--provider`, everything else is
+unchanged (the aggregate action's fallback install below uses exactly
+this). Wizening in CI is one line after setup, on the built artifact:
 
 ```sh
 target/ct-tools/bin/component-test wizen suite.wasm -o suite.wasm

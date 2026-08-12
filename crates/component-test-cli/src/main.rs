@@ -577,13 +577,21 @@ fn compose_from_args(
     provider: Option<&str>,
     runner: Option<&str>,
 ) -> anyhow::Result<Vec<u8>> {
+    let embedded = |bytes: Option<&'static [u8]>, flag: &str| {
+        bytes.map(<[u8]>::to_vec).with_context(|| {
+            format!(
+                "this component-test build carries no embedded components \
+                 (built with --no-default-features); pass {flag}"
+            )
+        })
+    };
     let provider = match provider {
         Some(path) => compose::read_component(path)?,
-        None => compose::EMBEDDED_PROVIDER.to_vec(),
+        None => embedded(compose::embedded_provider(), "--provider")?,
     };
     let runner = match runner {
         Some(path) => compose::read_component(path)?,
-        None => compose::EMBEDDED_RUNNER.to_vec(),
+        None => embedded(compose::embedded_runner(), "--runner")?,
     };
     compose::compose(input, &provider, &runner)
 }

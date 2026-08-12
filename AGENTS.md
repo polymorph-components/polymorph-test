@@ -55,9 +55,10 @@ crates/               host-side Rust (tested natively at root)
                            pins, wizen, compose-runner, run (the last
                            three embed wasmtime/wac-graph plus
                            size-optimized runner-cli + provider builds
-                           from embedded/ — regenerate those with
-                           `just embed-update`, commit the diff;
-                           `just verify-cli` gates their behavior)
+                           compiled from source by build.rs — always
+                           current, needs the wasm32-wasip2 target;
+                           `--no-default-features` for a host-only
+                           build; `just verify-cli` gates behavior)
   component-test-runner    wasmtime host-embed runner (`ct-runner` bin)
 components/           guest components (build with --target wasm32-wasip2)
   provider                 reference context provider
