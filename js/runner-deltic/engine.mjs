@@ -21,7 +21,7 @@
  * @param {object} [input.hostImports]  SUT host-import record fragments
  *   (interface id -> implementation), merged over the engine's wasi +
  *   test-context imports. MUST be built against the same embedder module
- *   instance as `bundle` (one WitError class; see worker-main.mjs).
+ *   instance as `bundle` (one ComponentException class; see worker-main.mjs).
  * @returns {Promise<{newTests: () => Promise<object>, Context, tagsOf}>}
  */
 export async function loadSuite(

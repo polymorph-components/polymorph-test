@@ -55,7 +55,7 @@ repo bundles one worker entry — the deltic engine surface, the message
 loop, and its own host module, resolved through one import map — and
 passes `workerMain({ deltic, suiteImports })` its inlined engine and an
 import-record factory. One bundle means one embedder module instance,
-which is what keeps `instanceof WitError` true across the host-module
+which is what keeps `instanceof ComponentException` true across the host-module
 boundary; workers resolve no import maps, so this is the only sound
 shape. The stock `browser-worker.mjs` is `workerMain()` with the
 bundleUrl-loading defaults.

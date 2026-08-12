@@ -135,6 +135,15 @@ verify-cli: build
 # specifier in every deno.json, and every @deltic package the lock
 # resolves, must name the SAME prerelease — one version names one
 # upstream commit, and the browser assets are built from that same graph.
+#
+# CONTRACT: as of deltic pre-b297834 (A10), @deltic/protocol ships as a
+# stable, independently-versioned package (0.1.0, no per-commit prerelease
+# hash) that @deltic/runtime/wasi-shims depend on transitively — it is not
+# named by any jsr:@deltic/*@<hash> specifier in deno.json and isn't part
+# of the "one version names one commit" pin this gate polices. Excluded by
+# name rather than by pattern, so drift in any *other* @deltic package
+# still trips the gate. See contracts/embedder-api.md "Migration notes"
+# (upstream, pre-b297834) and js/runner-deltic/deno.lock.
 deltic-pin-gate:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -145,14 +154,19 @@ deltic-pin-gate:
     python3 - "$v" js/runner-deltic/deno.lock <<'PY'
     import json, sys
     want, lock = sys.argv[1], json.load(open(sys.argv[2]))
+    stable = {"@deltic/protocol"}  # see CONTRACT note above deltic-pin-gate
+    def pkg_name(k):
+        # k looks like "jsr:@deltic/foo@1.2.3" or "@deltic/foo@1.2.3"
+        rest = k[len("jsr:"):] if k.startswith("jsr:") else k
+        return rest.rsplit("@", 1)[0]
     bad = {k: r for k, r in lock.get("specifiers", {}).items()
-           if "@deltic/" in k and r != want}
+           if "@deltic/" in k and r != want and pkg_name(k) not in stable}
     bad.update({k: k for k in lock.get("jsr", {}) if k.startswith("@deltic/")
-                and not k.endswith("@" + want)})
+                and not k.endswith("@" + want) and pkg_name(k) not in stable})
     if bad:
         sys.exit(f"deltic lock drift (want {want}): {sorted(bad)}")
     PY
-    echo "deltic pin gate: all @deltic packages pinned to $v"
+    echo "deltic pin gate: all @deltic packages pinned to $v (protocol excluded, stable)"
 
 # The deltic browser-leg assets, built from the pinned JSR graph (no
 # network fetch, no sha bookkeeping — deno.lock carries JSR package

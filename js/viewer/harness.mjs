@@ -249,12 +249,18 @@ export async function runCases({
       }
     } catch (e) {
       const payload = e?.payload ?? e;
-      if (payload?.tag === "failed") {
+      // Shape-compatible read: the deltic runner lifts err-result values as
+      // A10 `{ kind, value }`; the jco-era node runner still emits the
+      // pre-A10 `{ tag, val }` — this harness is shared by both, so read
+      // either spelling rather than picking one.
+      const kind = payload?.kind ?? payload?.tag;
+      const value = payload && "value" in payload ? payload.value : payload?.val;
+      if (kind === "failed") {
         failed++;
-        event = { case: name, status: "fail", provenance: "returned", detail: payload.val };
-      } else if (payload?.tag === "skipped") {
+        event = { case: name, status: "fail", provenance: "returned", detail: value };
+      } else if (kind === "skipped") {
         skipped++;
-        event = { case: name, status: "skipped", provenance: "returned", detail: payload.val };
+        event = { case: name, status: "skipped", provenance: "returned", detail: value };
       } else {
         failed++;
         event = {

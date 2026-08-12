@@ -19,11 +19,11 @@
   // re-run `deno install --entrypoint runner.ts browser-bundle-entry.ts` in
   // this directory, and commit the diff (see README.md "Pinning").
   "imports": {
-    "@deltic/ct-runner": "jsr:@deltic/ct-runner@0.1.0-pre.ga67ee83",
-    "@deltic/runtime/embedder": "jsr:@deltic/runtime@0.1.0-pre.ga67ee83/embedder",
-    "@deltic/runtime/shim": "jsr:@deltic/runtime@0.1.0-pre.ga67ee83/shim",
-    "@deltic/translator": "jsr:@deltic/translator@0.1.0-pre.ga67ee83",
-    "@deltic/wasi-shims": "jsr:@deltic/wasi-shims@0.1.0-pre.ga67ee83"
+    "@deltic/ct-runner": "jsr:@deltic/ct-runner@0.1.0-pre.g078aa15",
+    "@deltic/runtime/embedder": "jsr:@deltic/runtime@0.1.0-pre.g078aa15/embedder",
+    "@deltic/runtime/shim": "jsr:@deltic/runtime@0.1.0-pre.g078aa15/shim",
+    "@deltic/translator": "jsr:@deltic/translator@0.1.0-pre.g078aa15",
+    "@deltic/wasi-shims": "jsr:@deltic/wasi-shims@0.1.0-pre.g078aa15"
   },
   // Deno's supply-chain minimum-dependency-age gate (24h default) applies
   // even to exact prerelease pins; deltic publishes per commit, so the
