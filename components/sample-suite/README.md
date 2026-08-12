@@ -85,4 +85,6 @@ snapshot freezes whatever init observed (env, entropy, clocks), and
 the wizened artifact must be the one used everywhere downstream
 (runners, `lock --check`). Suites that import a system-under-test
 drive `component_test_runner::wizen::wizen_with` with their own
-linker instead.
+linker instead. When wizening pays — and when instance granularity or
+corpus preprocessing is the better lever — is the runner policy doc's
+call: see `docs/runner-policy.md`.

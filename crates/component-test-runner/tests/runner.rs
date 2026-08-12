@@ -156,6 +156,65 @@ fn missing_feature_flips_applicability() {
     assert_eq!(status_of(&cases, "fixture/hsm/declined")["status"], "pass");
 }
 
+/// `--only` reports the unselected census as `deselected` instead of
+/// omitting it (#22's cost-tier rule: subsetting is selection policy,
+/// visible as such), so filtered runs keep full coverage. Capability
+/// wins over selection: a tags-excluded case stays `not-applicable`
+/// even outside the filter (what aggregate's applicability policing
+/// requires of scheduled streams).
+#[test]
+#[ignore = "needs built components: run via `just test-wasm`"]
+fn only_reports_the_rest_of_the_census_deselected() {
+    let wasm = fixture_wasm();
+    let run = ct_runner(&[
+        wasm.to_str().unwrap(),
+        "--jsonl",
+        "--missing",
+        "hsm",
+        "--only",
+        "gen",
+    ]);
+    // The deliberate trap is outside the selection: nothing failed.
+    assert_eq!(run.code, 0, "stderr: {}", run.stderr);
+    let (_, cases, terminated) = parse_jsonl(&run.stdout);
+    assert!(terminated);
+
+    // Full census: 8 events, in census order.
+    assert_eq!(cases.len(), 8, "full census reported");
+    assert_eq!(status_of(&cases, "fixture/gen/tc1")["status"], "pass");
+    assert_eq!(status_of(&cases, "fixture/gen/tc2")["status"], "pass");
+    let boom = status_of(&cases, "fixture/trap/boom");
+    assert_eq!(boom["status"], "deselected");
+    assert_eq!(boom["detail"], "--only gen");
+    assert!(boom.get("provenance").is_none(), "never executed");
+    // Applicability beats selection.
+    let attest = status_of(&cases, "fixture/hsm/attest");
+    assert_eq!(attest["status"], "not-applicable");
+    assert_eq!(attest["detail"], "hsm");
+
+    // Human mode: deselected cases are silent per-case; the summary
+    // carries the count and the census total.
+    let run = ct_runner(&[wasm.to_str().unwrap(), "--missing", "hsm", "--only", "gen"]);
+    assert_eq!(run.code, 0, "stderr: {}", run.stderr);
+    assert!(
+        !run.stdout.contains("fixture/trap/boom"),
+        "deselected cases stay silent in human mode:\n{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout.contains(
+            "result: 2 passed, 0 failed, 0 skipped, 1 not applicable, 5 deselected, 8 total"
+        ),
+        "{}",
+        run.stdout
+    );
+
+    // A filter matching nothing remains an empty selection: run error.
+    let run = ct_runner(&[wasm.to_str().unwrap(), "--only", "zzz"]);
+    assert_eq!(run.code, 2, "stderr: {}", run.stderr);
+    assert!(run.stderr.contains("empty selection"), "{}", run.stderr);
+}
+
 #[test]
 #[ignore = "needs built components: run via `just test-wasm`"]
 fn suite_artifact_flag_rebinds_the_envelope() {

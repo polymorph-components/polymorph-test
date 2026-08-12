@@ -622,6 +622,55 @@ mod tests {
         assert_eq!(agg.targets, ["native", "sim"]);
     }
 
+    /// Corpus subsetting is selection policy (#22): an applicable case
+    /// reported `deselected` (a runner's `--only`, a smoke tier) is
+    /// coverage-complete, tolerated by applicability policing, and
+    /// non-failing — the subset target aggregates cleanly with the
+    /// subsetting visible. Capability still cannot hide behind
+    /// selection: `deselected` on a tags-excluded case remains the
+    /// applicability error (runners must report those not-applicable,
+    /// which takes precedence over deselection).
+    #[test]
+    fn deselected_is_selection_policy_not_capability() {
+        let sim_subset = doc(
+            "sim",
+            vec![
+                result("suite/add", Status::Deselected, Some("--only declined")),
+                result("suite/hsm/attest", Status::NotApplicable, Some("hsm")),
+                result("suite/hsm/declined", Status::Pass, None),
+            ],
+        );
+        let agg = aggregate(
+            &corpus_lock(),
+            &manifest(MANIFEST),
+            &[("native".into(), native_doc()), ("sim".into(), sim_subset)],
+        );
+        assert!(agg.errors.is_empty(), "{:?}", agg.errors);
+        assert!(agg.ok());
+
+        let sim_hiding = doc(
+            "sim",
+            vec![
+                result("suite/add", Status::Pass, None),
+                result("suite/hsm/attest", Status::Deselected, Some("--only x")),
+                result("suite/hsm/declined", Status::Pass, None),
+            ],
+        );
+        let agg = aggregate(
+            &corpus_lock(),
+            &manifest(MANIFEST),
+            &[("native".into(), native_doc()), ("sim".into(), sim_hiding)],
+        );
+        assert!(
+            agg.errors
+                .iter()
+                .any(|e| e.contains("suite/hsm/attest") && e.contains("not applicable")),
+            "{:?}",
+            agg.errors
+        );
+        assert!(!agg.ok());
+    }
+
     #[test]
     fn artifact_hashes_are_provenance_not_identity() {
         // Suite builds are not reproducible across environments, so a
