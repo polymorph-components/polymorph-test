@@ -11,10 +11,12 @@ migration runs on it); the WIT contract below is frozen, and design
 history lives in the [issues](../../issues). Everything is **unstable**
 (0.x), but [releases](../../releases) are **caret-honest**: within a
 minor line they stay backward-compatible, and anything breaking bumps
-the minor. Downstream consumption is pinned git dependencies — cargo
-for the crates, npm for the JS runner core (the root `package.json`
-exports `js/viewer`'s source-only modules) — pointed at a release's
-commit and bumped deliberately. How the pieces layer
+the minor. Downstream consumption: the crates are pinned cargo git
+dependencies pointed at a release's commit and bumped deliberately;
+the JS runner core is [`@polymorph/test`](https://jsr.io/@polymorph/test)
+on JSR (Deno consumers use `jsr:` specifiers, Node consumers the
+`@jsr/polymorph__test` npm-compat form), version-pinned per release.
+How the pieces layer
 together is described in [ARCHITECTURE.md](ARCHITECTURE.md). Layout:
 [`crates/`](crates/) (host-side Rust: core model, formats, results
 schema, guest SDK, CLI, host-embed runner), [`components/`](components/)

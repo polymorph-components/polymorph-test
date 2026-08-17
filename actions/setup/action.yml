@@ -12,11 +12,6 @@ inputs:
   cargo-lock:
     description: Path to the consumer's Cargo.lock.
     default: Cargo.lock
-  js-locks:
-    description: >
-      JS lockfiles to include in the pins gate (package-lock.json /
-      pnpm-lock.yaml), one path per line. Optional.
-    default: ""
   tools:
     description: >
       Space-separated crates to install from this repository.
@@ -133,7 +128,6 @@ runs:
       shell: bash
       env:
         INPUT_CARGO_LOCK: ${{ inputs.cargo-lock }}
-        INPUT_JS_LOCKS: ${{ inputs.js-locks }}
         INPUT_INSTALL_ROOT: ${{ inputs.install-root }}
         PIN_REV: ${{ steps.pin.outputs.rev }}
       run: |
@@ -143,9 +137,4 @@ runs:
           echo "::error title=component-test setup::the pins gate needs the component-test CLI; keep component-test-cli in the tools input" >&2
           exit 1
         fi
-        args=(pins --cargo-lock "$INPUT_CARGO_LOCK" --expect "$PIN_REV")
-        while IFS= read -r line; do
-          line="${line#"${line%%[![:space:]]*}"}"
-          [ -n "$line" ] && args+=(--js-lock "$line")
-        done <<< "$INPUT_JS_LOCKS"
-        "$cli" "${args[@]}" > /dev/null
+        "$cli" pins --cargo-lock "$INPUT_CARGO_LOCK" --expect "$PIN_REV" > /dev/null

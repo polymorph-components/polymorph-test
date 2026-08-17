@@ -21,8 +21,6 @@ fails the run (branch/tag refs skip with a notice).
   id: ct
   with:
     cargo-lock: Cargo.lock
-    js-locks: |
-      conformance/driver-ct/jco/package-lock.json
     # tools: component-test-cli component-test-runner   (default)
     # install-root: target/ct-tools                     (default)
 # steps.ct.outputs.rev — the pinned revision
@@ -80,8 +78,10 @@ _ct-tools:
     target/ct-tools/bin/component-test pins --cargo-lock Cargo.lock --expect "$rev" > /dev/null
 ```
 
-(Append `--js-lock <lockfile>` for each JS lockfile the repo carries;
-drop `component-test-runner` if the runner is embedded as a library.)
+(Drop `component-test-runner` if the runner is embedded as a library.
+The JS runner core is consumed from JSR as `@polymorph/test`, pinned by
+version in the consumer's lockfiles and gated by the consumer's own
+runner-js pin check — the cargo rev is the only pin this gate holds.)
 
 ### Transpile stamps
 
