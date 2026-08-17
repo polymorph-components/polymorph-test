@@ -1,13 +1,15 @@
 {
-  // MODULE IDENTITY — deltic is consumed from JSR as exact-pinned unstable
-  // prereleases: every green deltic `main` commit publishes
-  // `0.1.0-pre.g<shorthash>`, so the version below NAMES ONE upstream commit
-  // (there is no stable line yet; hash versions are unordered and semver
-  // ranges never resolve to prereleases, hence exact pins). All four
+  // MODULE IDENTITY — deltic is consumed from JSR as exact-pinned
+  // releases. Upstream is caret-honest (within a minor line releases stay
+  // compatible; breaking changes bump the minor); the pin stays exact so
+  // the version is reviewable here and one bump is one diff. Between
+  // releases every green deltic `main` commit also publishes
+  // `<next>-pre.g<shorthash>` prereleases (unordered hash versions — pin
+  // exactly) for when a not-yet-released commit is needed. All four
   // packages must carry the SAME version — `just verify-deltic`'s pin gate
   // asserts that repo-wide.
   //
-  // `@deltic/runtime/embedder` is mapped because `@deltic/wasi-shims`
+  // `@deltic/runtime/embedder` is mapped because `@deltic/wasi`
   // imports it by bare specifier. `@deltic/translator` ships the translator
   // wasm built from the same commit: the Deno leg loads it through the
   // module graph (`defaultTranslator()`, permission-free) and the browser
@@ -19,11 +21,11 @@
   // re-run `deno install --entrypoint runner.ts browser-bundle-entry.ts` in
   // this directory, and commit the diff (see README.md "Pinning").
   "imports": {
-    "@deltic/ct-runner": "jsr:@deltic/ct-runner@0.1.0-pre.g078aa15",
-    "@deltic/runtime/embedder": "jsr:@deltic/runtime@0.1.0-pre.g078aa15/embedder",
-    "@deltic/runtime/shim": "jsr:@deltic/runtime@0.1.0-pre.g078aa15/shim",
-    "@deltic/translator": "jsr:@deltic/translator@0.1.0-pre.g078aa15",
-    "@deltic/wasi-shims": "jsr:@deltic/wasi-shims@0.1.0-pre.g078aa15"
+    "@deltic/ct-runner": "jsr:@deltic/ct-runner@0.1.0",
+    "@deltic/runtime/embedder": "jsr:@deltic/runtime@0.1.0/embedder",
+    "@deltic/runtime/shim": "jsr:@deltic/runtime@0.1.0/shim",
+    "@deltic/translator": "jsr:@deltic/translator@0.1.0",
+    "@deltic/wasi": "jsr:@deltic/wasi@0.1.0"
   },
   // Deno's supply-chain minimum-dependency-age gate (24h default) applies
   // even to exact prerelease pins; deltic publishes per commit, so the

@@ -24,7 +24,7 @@
 import { Translator } from "@deltic/runtime/shim";
 import { defaultTranslator } from "@deltic/translator";
 import { runSuite } from "@deltic/ct-runner";
-import { wasiShims } from "@deltic/wasi-shims";
+import { wasi } from "@deltic/wasi";
 
 interface Cli {
   suitePath: string;
@@ -122,7 +122,7 @@ async function main() {
 
   const lines: string[] = [];
   const counts = await runSuite({ plan, componentBytes, adapters }, {
-    imports: wasiShims(),
+    imports: wasi(),
     target: cli.target,
     suiteName: suiteNameFrom(cli.suitePath),
     missing: cli.missing,

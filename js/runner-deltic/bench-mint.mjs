@@ -82,7 +82,7 @@ console.log(
 
 for (const n of caseCounts) {
   const imports = {
-    ...deltic.wasiShims({ cli: { env: { BENCH_CASES: String(n) } } }),
+    ...deltic.wasi({ cli: { env: { BENCH_CASES: String(n) } } }),
     ...deltic.testContextImportRecord(),
   };
   const warmup = Math.min(3, instances);

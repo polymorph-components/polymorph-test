@@ -44,7 +44,7 @@ const componentBytes = new Uint8Array(readFileSync(aggregatePath));
 const { plan, adapters } = translator.translate(componentBytes);
 const inst = await deltic.instantiate(
   { plan, componentBytes, adapters },
-  deltic.wasiShims(),
+  deltic.wasi(),
 );
 const aggregate = inst.exports.run;
 

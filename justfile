@@ -138,7 +138,7 @@ verify-cli: build
 #
 # CONTRACT: as of deltic pre-b297834 (A10), @deltic/protocol ships as a
 # stable, independently-versioned package (0.1.0, no per-commit prerelease
-# hash) that @deltic/runtime/wasi-shims depend on transitively — it is not
+# hash) that @deltic/{runtime,wasi} depend on transitively — it is not
 # named by any jsr:@deltic/*@<hash> specifier in deno.json and isn't part
 # of the "one version names one commit" pin this gate polices. Excluded by
 # name rather than by pattern, so drift in any *other* @deltic package
