@@ -1,6 +1,6 @@
 {
   "name": "@polymorph/test",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "Apache-2.0",
   "//": "The polymorph:test stack's JS runner core on JSR — the same source-only module set the repo-root package.json exports to npm git installs (keep the two export maps in sync). Plain JS with relative and node: imports only; the browser-safe pieces (harness, context, imports, the workers) load in browsers unchanged, and the node: importers (node-runner, browser-driver) are Node/Deno-side drivers. The publish include-list IS the package: everything else under js/ is repo tooling (the deltic runner leg, selftests, the viewer app).",
   "exports": {

@@ -137,7 +137,7 @@ checksum = "3a8241f3ebb85c056b509d4327ad0358fbbba6ffb340bf388f26350aeda225b1"
 
 [[package]]
 name = "bench-suite"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "component-test-sdk",
 ]
@@ -300,7 +300,7 @@ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
 name = "component-test-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -316,7 +316,7 @@ dependencies = [
 
 [[package]]
 name = "component-test-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arcstr",
  "serde",
@@ -324,7 +324,7 @@ dependencies = [
 
 [[package]]
 name = "component-test-formats"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "component-test-core",
@@ -338,7 +338,7 @@ dependencies = [
 
 [[package]]
 name = "component-test-results"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "component-test-core",
@@ -348,7 +348,7 @@ dependencies = [
 
 [[package]]
 name = "component-test-runner"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "component-test-core",
@@ -364,7 +364,7 @@ dependencies = [
 
 [[package]]
 name = "component-test-sdk"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "component-test-core",
@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "component-test-sdk-macro"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "component-test-core",
  "component-test-sdk",
@@ -656,7 +656,7 @@ dependencies = [
 
 [[package]]
 name = "drift-fixture"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "component-test-sdk",
 ]
@@ -724,7 +724,7 @@ checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
 
 [[package]]
 name = "fixture-suite"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "component-test-sdk",
 ]
@@ -932,7 +932,7 @@ checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
 name = "hang-fixture"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "component-test-sdk",
 ]
@@ -1424,7 +1424,7 @@ dependencies = [
 
 [[package]]
 name = "provider"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "wit-bindgen",
 ]
@@ -1538,7 +1538,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "runner-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "component-test-results",
  "futures",
@@ -1589,7 +1589,7 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
 name = "sample-suite"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "component-test-sdk",
 ]
@@ -2031,7 +2031,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "viewer-aggregate"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "component-test-formats",
@@ -3030,7 +3030,7 @@ dependencies = [
 
 [[package]]
 name = "zero-gen-fixture"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "component-test-sdk",
 ]

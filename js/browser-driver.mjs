@@ -21,7 +21,10 @@ import { fileURLToPath } from "node:url";
 /** Where this package self-mounts on the harness server. */
 export const MOUNT = "/__component-test";
 
-const PACKAGE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+// The directory holding this module (and its `viewer/` siblings): the
+// package root under the JSR/npm-compat layout, the `js/` subtree in a
+// repo checkout — the mount serves `viewer/*` either way.
+const PACKAGE_ROOT = dirname(fileURLToPath(import.meta.url));
 
 const MIME = {
   ".html": "text/html",
@@ -37,9 +40,12 @@ const MIME = {
  *  URLs instead). */
 export function componentTestImportMap() {
   return {
-    "@polymorph/component-test-js/harness": `${MOUNT}/js/viewer/harness.mjs`,
-    "@polymorph/component-test-js/context": `${MOUNT}/js/viewer/context.js`,
-    "@polymorph/component-test-js/imports": `${MOUNT}/js/viewer/imports.mjs`,
+    "@polymorph/test/harness": `${MOUNT}/viewer/harness.mjs`,
+    "@polymorph/test/context": `${MOUNT}/viewer/context.js`,
+    "@polymorph/test/imports": `${MOUNT}/viewer/imports.mjs`,
+    "@polymorph/component-test-js/harness": `${MOUNT}/viewer/harness.mjs`,
+    "@polymorph/component-test-js/context": `${MOUNT}/viewer/context.js`,
+    "@polymorph/component-test-js/imports": `${MOUNT}/viewer/imports.mjs`,
   };
 }
 
@@ -56,9 +62,9 @@ export function buildHarnessPage({ title = "component-test conformance", importM
 <title>${title}</title>
 <script type="importmap">${map}</script>
 <script type="module">
-import { runSuitesInPage } from "${MOUNT}/js/viewer/page-runner.mjs";
+import { runSuitesInPage } from "${MOUNT}/viewer/page-runner.mjs";
 await runSuitesInPage({
-  workerUrl: "${MOUNT}/js/viewer/browser-worker.mjs",
+  workerUrl: "${MOUNT}/viewer/browser-worker.mjs",
   ...${JSON.stringify(config)},
 });
 </script>`;
