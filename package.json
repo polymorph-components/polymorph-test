@@ -4,7 +4,7 @@
   "private": false,
   "type": "module",
   "description": "The polymorph:test stack's JS runner core, consumable as a pinned git dependency (npm git installs cannot select subdirectories, so this facade lives at the repo root). Source-only by design: the browser-safe harness (tag inventory, mark scheduling, the case loop), the test-context provider, and the shard workers (jco- and deltic-shaped). Built artifacts (the viewer-aggregate engine) are deliberately excluded - they wait for registry publishing. Stability policy: unstable 0.x, caret-honest releases (breaking changes bump the minor); pin a release's commit and bump deliberately.",
-  "license": "Apache-2.0 WITH LLVM-exception",
+  "license": "Apache-2.0",
   "repository": "github:polymorph-components/polymorph-test",
   "files": [
     "js/viewer/harness.mjs",
