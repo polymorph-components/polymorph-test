@@ -254,3 +254,48 @@ bench-suite artifact built with its `wizer-init` feature.
     must run, name sections explicitly with `--delete`; never the
     default form.
 
+
+## Consuming @polymorph/test from JSR (the consumer migration)
+
+From migrating the four conformance drivers off the npm-git facade
+onto `jsr:@polymorph/test` / its npm-compat form (webcrypto#385,
+tls#46, websocket#55, webrtc-datachannels#162; deno 2.9.5, npm 11).
+
+26. **One JSR package, two on-disk layouts.** npm's install of the
+    npm-compat package (`@jsr/polymorph__test` from `npm.jsr.io`)
+    extracts the compat tarball, whose files sit under the path prefix
+    the generated exports use; deno's own materialization of the same
+    dependency (package.json dep resolved by `deno install`) lays the
+    package out JSR-natively — module root = the package root, no
+    prefix. File paths into `node_modules/@jsr/...` are therefore
+    layout-fragile; only export-map subpaths and `jsr:` specifiers are
+    stable across installers. (This is what made browser-driver's
+    old `<pkg>/js/viewer/*` mount assumption fail — fixed in #97 by
+    mounting the module's own directory.)
+
+27. **deno 2.9 cannot parse scoped npm aliases in package.json.**
+    `"x": "npm:@jsr/polymorph__test@0.1.0"` fails config parsing
+    ("Unexpected character '/'"); a plain scoped dependency
+    `"@jsr/polymorph__test": "0.1.0"` plus `.npmrc` scope routing
+    (`@jsr:registry=https://npm.jsr.io`) parses and resolves in both
+    npm and deno.
+
+28. **`deno install` scopes prune each other's node_modules.** In a
+    directory with both deno.json and package.json, bare
+    `deno install` (package.json scope) and
+    `deno install --entrypoint a.ts b.ts` (module-graph scope) each
+    re-materialize node_modules for *their* dependency set, removing
+    the other's packages. Sequence that holds: bare `deno install`
+    owns node_modules; `deno check <entrypoints>` adds the module
+    graphs to deno.lock without touching node_modules. Note the lock
+    then carries a `workspace.packageJson.dependencies` section every
+    deno subcommand (including `deno bundle --frozen`) recomputes —
+    package.json edits require a lock regen or --frozen fails on the
+    stale entry.
+
+29. **`minimumDependencyAge` gates npm-form deps under their npm
+    name.** A same-day JSR publish consumed through the npm-compat
+    registry needs the `npm:@jsr/*` pattern excluded (or the jsr:
+    equivalent where the dep enters as a `jsr:` specifier) — the
+    `jsr:@polymorph/*` exclusion alone does not cover the npm-form
+    resolution path.
