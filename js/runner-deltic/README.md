@@ -6,7 +6,7 @@ the jco leg there is no transpile step, no generated tree, and no engine
 flag (the contract's async exports run on the callback ABI under stock
 Deno). Same runner-is-provider topology as `js/runner-node`: deltic's
 `runSuite` supplies `test-context` host-side and mirrors
-`js/viewer/harness.mjs` case-loop semantics; `wasiShims()` serves the
+`js/viewer/harness.mjs` case-loop semantics; `wasi()` serves the
 suites' `wasi:{cli,clocks,io,random,filesystem}` leaves.
 
 ```sh
@@ -62,16 +62,19 @@ bundleUrl-loading defaults.
 
 ## Pinning
 
-deltic is consumed from JSR as **exact-pinned unstable prereleases**:
-every green deltic `main` commit publishes
-`@deltic/{runtime,translator,wasi-shims,ct-runner}` as
-`0.1.0-pre.g<shorthash>`, so one version names one upstream commit
-(there is no stable line yet — hash versions are unordered and semver
-ranges never resolve to prereleases).
+deltic is consumed from JSR as **exact-pinned releases**:
+`@deltic/{runtime,translator,wasi,ct-runner}` release in lockstep
+from one upstream commit, and upstream is caret-honest (within a minor
+line releases stay compatible; breaking changes bump the minor), so a
+bump within a minor line is routine and a minor bump is a compatibility
+review. The pin stays exact so the version is reviewable here and one
+bump is one diff. Between releases every green deltic `main` commit
+also publishes `<next>-pre.g<shorthash>` prereleases (unordered hash
+versions — pin exactly) for when a not-yet-released commit is needed.
 
 - `deno.json` — the import map holds the five `jsr:@deltic/...@<version>`
   specifiers. `@deltic/runtime/embedder` is mapped because
-  `@deltic/wasi-shims` imports it by bare specifier.
+  `@deltic/wasi` imports it by bare specifier.
   `minimumDependencyAge` exempts the `@deltic` scope so same-day
   publishes resolve (Deno >= 2.9 for the wildcard exclude).
 - `deno.lock` — carries JSR package integrity for that graph and is

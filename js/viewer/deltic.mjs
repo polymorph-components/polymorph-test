@@ -44,7 +44,7 @@ export function aggregateEngine() {
     const { plan, adapters } = translator.translate(componentBytes);
     const inst = await deltic.instantiate(
       { plan, componentBytes, adapters },
-      deltic.wasiShims(),
+      deltic.wasi(),
     );
     return inst.exports.run;
   })();

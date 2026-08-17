@@ -4,7 +4,7 @@
 // component, and hand back exactly what harness.mjs `runCases` needs.
 // deltic is a runtime linker — the suite arrives as the COMPONENT wasm
 // (no transpiled module, no core files, no imports module; WASI comes
-// from the bundle's wasiShims, test-context from its ct-runner glue).
+// from the bundle's wasi(), test-context from its ct-runner glue).
 //
 // The Context handed to runCases MUST be the bundle's own Context class:
 // `testContextImportRecord()` registers that exact class as the
@@ -33,7 +33,7 @@ export async function loadSuite(
   const artifacts = { plan, componentBytes: suiteBytes, adapters };
 
   const imports = {
-    ...deltic.wasiShims({ cli: { env: Object.fromEntries(env) } }),
+    ...deltic.wasi({ cli: { env: Object.fromEntries(env) } }),
     ...deltic.testContextImportRecord(),
     ...hostImports,
   };
