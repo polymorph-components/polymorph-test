@@ -17,11 +17,18 @@ import {
   findChrome,
 } from "./browser-driver.mjs";
 
-// The import map points every bare specifier at the self-mount.
+// The import map points every bare specifier at the self-mount, under
+// both the JSR name and the retired npm-facade name.
 const map = componentTestImportMap();
 for (const [specifier, path] of Object.entries(map)) {
-  assert.ok(specifier.startsWith("@polymorph/component-test-js/"));
-  assert.ok(path.startsWith(`${MOUNT}/js/viewer/`));
+  assert.ok(
+    specifier.startsWith("@polymorph/test/") ||
+      specifier.startsWith("@polymorph/component-test-js/"),
+  );
+  assert.ok(path.startsWith(`${MOUNT}/viewer/`));
+}
+for (const name of ["harness", "context", "imports"]) {
+  assert.equal(map[`@polymorph/test/${name}`], map[`@polymorph/component-test-js/${name}`]);
 }
 
 // The page: import map merged with the caller's, config JSON embedded,
@@ -43,8 +50,8 @@ const html = buildHarnessPage({
 });
 assert.ok(html.includes(`"my:sut":"/js/sut.js"`), "caller import-map entry");
 assert.ok(html.includes(map["@polymorph/component-test-js/harness"]), "self-mount entry");
-assert.ok(html.includes(`${MOUNT}/js/viewer/page-runner.mjs`));
-assert.ok(html.includes(`${MOUNT}/js/viewer/browser-worker.mjs`));
+assert.ok(html.includes(`${MOUNT}/viewer/page-runner.mjs`));
+assert.ok(html.includes(`${MOUNT}/viewer/browser-worker.mjs`));
 assert.ok(html.includes(`"jco-browser"`), "config embedded");
 
 // findChrome: an executable CHROME_PATH wins outright; a missing one
