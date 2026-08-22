@@ -21,11 +21,11 @@
   // re-run `deno install --entrypoint runner.ts browser-bundle-entry.ts` in
   // this directory, and commit the diff (see README.md "Pinning").
   "imports": {
-    "@polyengine/ct-runner": "jsr:@polyengine/ct-runner@0.3.0",
-    "@polyengine/runtime/embedder": "jsr:@polyengine/runtime@0.3.0/embedder",
-    "@polyengine/runtime/shim": "jsr:@polyengine/runtime@0.3.0/shim",
-    "@polyengine/translator": "jsr:@polyengine/translator@0.3.0",
-    "@polyengine/wasi": "jsr:@polyengine/wasi@0.3.0"
+    "@polyengine/ct-runner": "jsr:@polyengine/ct-runner@0.4.0",
+    "@polyengine/runtime/embedder": "jsr:@polyengine/runtime@0.4.0/embedder",
+    "@polyengine/runtime/shim": "jsr:@polyengine/runtime@0.4.0/shim",
+    "@polyengine/translator": "jsr:@polyengine/translator@0.4.0",
+    "@polyengine/wasi": "jsr:@polyengine/wasi@0.4.0"
   },
   // Deno's supply-chain minimum-dependency-age gate (24h default) applies
   // even to exact prerelease pins; polyengine publishes per commit, so the
