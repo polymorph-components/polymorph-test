@@ -92,7 +92,7 @@ the wizened artifact (finding 22).
 
 When it does *not* pay:
 
-- **JS legs (deltic, browser): net ~1.5× at best.** V8 has no
+- **JS legs (polyengine, browser): net ~1.5× at best.** V8 has no
   copy-on-write memory images, so the 1.29 MB active data segment is
   copied at every instantiation (0.78 ms → 2.17 ms), eating most of
   the enumeration win (finding 24). Instance granularity K>1 remains

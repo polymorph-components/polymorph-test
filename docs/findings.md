@@ -137,9 +137,10 @@ N trivially-passing cases, no corpus, no per-case data
 (`components/bench-suite`, count via `BENCH_CASES` env). Drivers:
 `bench-mint` bin (wasmtime, production `Runner` config: pooling, CoW,
 epoch instrumentation, untyped `Val` calls) and
-`js/runner-deltic/bench-mint.mjs` (pinned deltic embedder, plain
+`js/runner-polyengine/bench-mint.mjs` (pinned polyengine embedder, plain
 Node). Medians over 20/10 fresh instances, one dev box (17-core
-x86_64 Linux), wasmtime 47.0.3 / deltic pre-83fff30 / Node 24.
+x86_64 Linux), wasmtime 47.0.3 / deltic pre-83fff30 (the engine's
+pre-rename name; now polyengine) / Node 24.
 
 19. **wasmtime: `all()` splits ~3:1 registry-build : mint+lift, both
     linear.** At 10k cases: all#1 (build + mint + lift) 3.2ms, all#2
@@ -154,7 +155,7 @@ x86_64 Linux), wasmtime 47.0.3 / deltic pre-83fff30 / Node 24.
     wizer) buys more than lift avoidance alone; a direct-access
     interface caps out at ~25% unless stacked on a lazy/static
     registry.
-20. **deltic (runtime linker, callback ABI): same shape, bigger
+20. **polyengine (runtime linker, callback ABI): same shape, bigger
     constants.** Instantiate ~650µs (~30× wasmtime); mint+lift
     ~340–370ns/handle (~4.3×; mildly superlinear by 30k — V8 GC on
     the wrapper objects); per-call boundary overhead ~25µs (~10×);
@@ -165,7 +166,7 @@ x86_64 Linux), wasmtime 47.0.3 / deltic pre-83fff30 / Node 24.
 21. **`harness.mjs` fresh-instance relocation was the real JS-leg
     quadratic** (fixed — positional relocation, PR #83): `freshCases`
     re-found each case by a linear `name()` scan. Hot-loop `name()`
-    costs ~3.4µs under deltic (a cold single call measures ~26µs —
+    costs ~3.4µs under polyengine (a cold single call measures ~26µs —
     promise/JIT overhead that amortizes), so the scan averaged ~N/2 ×
     3.4µs ≈ **17ms per case** at 10k (33ms worst, measured), a
     multiple of the `all()` re-enumeration it followed and O(N²)
@@ -223,7 +224,7 @@ bench-suite artifact built with its `wizer-init` feature.
     full-isolation run: 30.8s → 7.1s sequential (4.3×), **1.14s at
     jobs=8** — per-case isolation on a wizened suite undercuts the
     shared-instance numbers that motivated relaxing isolation in #22.
-24. **deltic, wizened suite: net ~1.5× only.** all#1 6.9ms → 2.9ms,
+24. **polyengine, wizened suite: net ~1.5× only.** all#1 6.9ms → 2.9ms,
     but instantiate 0.78ms → 2.17ms: V8 has no CoW memory images, so
     the 1.29MB active data segment is copied at every instantiation,
     eating most of the build win (translate also 24ms → 44ms,

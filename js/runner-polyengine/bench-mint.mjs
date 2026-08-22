@@ -1,20 +1,20 @@
-// Synthetic handle-mint benchmark for the deltic leg — the runtime-linked
+// Synthetic handle-mint benchmark for the polyengine leg — the runtime-linked
 // sibling of crates/component-test-runner/src/bin/bench-mint.rs, measuring
-// the same phases per fresh instance under the pinned deltic embedder on
+// the same phases per fresh instance under the pinned polyengine embedder on
 // plain Node (callback ABI, no engine flags):
 //
-//   instantiate  deltic.instantiate (runtime link + wasm instantiation)
+//   instantiate  polyengine.instantiate (runtime link + wasm instantiation)
 //   all#1        first all(): guest registry build + mint + lift (N wrappers)
 //   all#2        second all(): mint + lift only (guest registry cached)
 //   name[0]      one test-case.name boundary call
 //   run[0]       one trivial case execution (borrowed context)
 //
-// No teardown phase: deltic instances are GC-reclaimed, there is no
+// No teardown phase: polyengine instances are GC-reclaimed, there is no
 // dispose surface. Case count rides the BENCH_CASES wasi env import
 // (see components/bench-suite).
 //
-//   node js/runner-deltic/bench-mint.mjs <deltic-embedder.mjs> \
-//     <deltic-translator-shim.wasm> <bench_suite.wasm> \
+//   node js/runner-polyengine/bench-mint.mjs <polyengine-embedder.mjs> \
+//     <polyengine-translator-shim.wasm> <bench_suite.wasm> \
 //     [--cases 100,1000,10000] [--instances 10]
 
 import { readFileSync } from "node:fs";
@@ -40,17 +40,17 @@ for (let i = 0; i < args.length; i++) {
 const [bundlePath, translatorPath, suitePath] = positional;
 if (!suitePath) {
   console.error(
-    "usage: node bench-mint.mjs <deltic-embedder.mjs> <translator.wasm> " +
+    "usage: node bench-mint.mjs <polyengine-embedder.mjs> <translator.wasm> " +
       "<bench_suite.wasm> [--cases N,N,...] [--instances M]",
   );
   process.exit(2);
 }
 
-const deltic = await import(pathToFileURL(bundlePath).href);
+const polyengine = await import(pathToFileURL(bundlePath).href);
 const suiteBytes = new Uint8Array(readFileSync(suitePath));
 
 let t = performance.now();
-const translator = await deltic.Translator.create(
+const translator = await polyengine.Translator.create(
   new Uint8Array(readFileSync(translatorPath)),
 );
 const translatorMs = performance.now() - t;
@@ -82,14 +82,14 @@ console.log(
 
 for (const n of caseCounts) {
   const imports = {
-    ...deltic.wasi({ cli: { env: { BENCH_CASES: String(n) } } }),
-    ...deltic.testContextImportRecord(),
+    ...polyengine.wasi({ cli: { env: { BENCH_CASES: String(n) } } }),
+    ...polyengine.testContextImportRecord(),
   };
   const warmup = Math.min(3, instances);
   const samples = { instantiate: [], all1: [], all2: [], name0: [], run0: [] };
   for (let i = 0; i < instances + warmup; i++) {
     let t = performance.now();
-    const inst = await deltic.instantiate(artifacts, imports);
+    const inst = await polyengine.instantiate(artifacts, imports);
     const instantiate = performance.now() - t;
     const tests = inst.exports[TESTS] ?? inst.exports["tests"];
 
@@ -112,7 +112,7 @@ for (const n of caseCounts) {
       throw new Error(`unexpected case name '${name}'`);
     }
 
-    const ctx = new deltic.Context(() => {});
+    const ctx = new polyengine.Context(() => {});
     t = performance.now();
     await cases1[0].run(ctx); // resolves = pass; throws = fail/trap
     const run0 = performance.now() - t;

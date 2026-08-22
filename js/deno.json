@@ -1,8 +1,8 @@
 {
   "name": "@polymorph/test",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "license": "Apache-2.0",
-  "//": "The polymorph:test stack's JS runner core on JSR — the one consumable JS surface (the repo-root npm-git facade is retired; this export map is the only one). Plain JS with relative and node: imports only; the browser-safe pieces (harness, context, imports, the workers) load in browsers unchanged, and the node: importers (node-runner, browser-driver) are Node/Deno-side drivers. The publish include-list IS the package: everything else under js/ is repo tooling (the deltic runner leg, selftests, the viewer app).",
+  "//": "The polymorph:test stack's JS runner core on JSR — the one consumable JS surface (the repo-root npm-git facade is retired; this export map is the only one). Plain JS with relative and node: imports only; the browser-safe pieces (harness, context, imports, the workers) load in browsers unchanged, and the node: importers (node-runner, browser-driver) are Node/Deno-side drivers. The publish include-list IS the package: everything else under js/ is repo tooling (the polyengine runner leg, selftests, the viewer app).",
   "exports": {
     "./harness": "./viewer/harness.mjs",
     "./context": "./viewer/context.js",
@@ -11,9 +11,9 @@
     "./page-runner": "./viewer/page-runner.mjs",
     "./node-runner": "./node-runner.mjs",
     "./browser-driver": "./browser-driver.mjs",
-    "./deltic-worker": "./runner-deltic/browser-worker.mjs",
-    "./deltic-engine": "./runner-deltic/engine.mjs",
-    "./deltic-worker-main": "./runner-deltic/worker-main.mjs"
+    "./polyengine-worker": "./runner-polyengine/browser-worker.mjs",
+    "./polyengine-engine": "./runner-polyengine/engine.mjs",
+    "./polyengine-worker-main": "./runner-polyengine/worker-main.mjs"
   },
   "publish": {
     "include": [
@@ -25,9 +25,9 @@
       "viewer/page-runner.mjs",
       "node-runner.mjs",
       "browser-driver.mjs",
-      "runner-deltic/worker-main.mjs",
-      "runner-deltic/browser-worker.mjs",
-      "runner-deltic/engine.mjs"
+      "runner-polyengine/worker-main.mjs",
+      "runner-polyengine/browser-worker.mjs",
+      "runner-polyengine/engine.mjs"
     ]
   }
 }

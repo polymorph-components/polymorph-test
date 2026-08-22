@@ -133,7 +133,7 @@ export function envelope(target, suite) {
  * `freshCases` (a timed-out shared instance may be wedged
  * mid-suspension, poisoning every later case).
  *
- * `name()` may be Promise-shaped: deltic's embedder exports are
+ * `name()` may be Promise-shaped: polyengine's embedder exports are
  * uniformly async (contracts/embedder-api.md "Functions and async"),
  * while jco sync-lifted exports return plain values; awaiting a plain
  * value is a no-op, so this loop is host-agnostic.
@@ -204,7 +204,7 @@ export async function runCases({
       // rule), so the case sits at the same census index in the fresh
       // list — O(1) instead of a name() scan per case, which at 10^4
       // scale costs ~N/2 boundary calls per case and dominates the
-      // whole loop (~130ms/case under deltic). One name() call
+      // whole loop (~130ms/case under polyengine). One name() call
       // verifies; disagreement is enumeration drift — unsound run,
       // not a failing case.
       const fresh = await freshCases();
@@ -249,7 +249,7 @@ export async function runCases({
       }
     } catch (e) {
       const payload = e?.payload ?? e;
-      // Shape-compatible read: the deltic runner lifts err-result values as
+      // Shape-compatible read: the polyengine runner lifts err-result values as
       // A10 `{ kind, value }`; the jco-era node runner still emits the
       // pre-A10 `{ tag, val }` — this harness is shared by both, so read
       // either spelling rather than picking one.

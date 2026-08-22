@@ -1,4 +1,4 @@
-// The deltic runner leg (Path 3b): drive an L1 suite under deltic — a
+// The polyengine runner leg (Path 3b): drive an L1 suite under polyengine — a
 // runtime linker, so there is NO transpile step and NO engine flag; the
 // contract's async exports run on the callback ABI under stock Deno.
 //
@@ -6,25 +6,25 @@
 // provider: the host supplies test-context) and, in human mode, its exact
 // output format — `expected/verify-run-sample.txt` is shared verbatim with
 // the composed-cli and jco-node legs. With --jsonl it emits canonical L4
-// results JSONL instead (deltic's runSuite mirrors js/viewer/harness.mjs
+// results JSONL instead (polyengine's runSuite mirrors js/viewer/harness.mjs
 // semantics; schema authority: crates/component-test-results).
 //
-//   deno run --allow-read=target --config js/runner-deltic/deno.json \
-//     --frozen js/runner-deltic/runner.ts <suite.wasm> \
+//   deno run --allow-read=target --config js/runner-polyengine/deno.json \
+//     --frozen js/runner-polyengine/runner.ts <suite.wasm> \
 //     [--translator <translator_shim.wasm>] [--jsonl] [--target NAME]
 //
-// The translator comes from the pinned @deltic/translator package through
+// The translator comes from the pinned @polyengine/translator package through
 // the module graph (permission-free: no net grant, no read grant for the
 // asset). `--translator` stays as a documented escape hatch for driving an
 // externally-sourced translator wasm; absent, the packaged one is used.
 //
-// The deltic pin lives in deno.json + deno.lock (which see, and README.md
+// The polyengine pin lives in deno.json + deno.lock (which see, and README.md
 // for the bump procedure).
 
-import { Translator } from "@deltic/runtime/shim";
-import { defaultTranslator } from "@deltic/translator";
-import { runSuite } from "@deltic/ct-runner";
-import { wasi } from "@deltic/wasi";
+import { Translator } from "@polyengine/runtime/shim";
+import { defaultTranslator } from "@polyengine/translator";
+import { runSuite } from "@polyengine/ct-runner";
+import { wasi } from "@polyengine/wasi";
 
 interface Cli {
   suitePath: string;
@@ -38,7 +38,7 @@ function parseArgs(argv: string[]): Cli {
   const positional: string[] = [];
   let translator: string | undefined;
   let jsonl = false;
-  let target = "deltic/deno";
+  let target = "polyengine/deno";
   let missing: string[] | undefined;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -94,7 +94,7 @@ function renderHuman(e: CaseEvent): string {
       lines.push(`test ${e.case}: SKIP: ${e.detail ?? ""}`);
       break;
     case "not-applicable":
-      // Tag scheduling (deltic ct-runner #25): the case was scheduled out
+      // Tag scheduling (polyengine ct-runner #25): the case was scheduled out
       // for this target, not executed. No shared human golden constrains
       // this line (the composed/jco legs never see tags).
       lines.push(`test ${e.case}: N/A: ${e.detail ?? ""}`);

@@ -15,7 +15,7 @@ code compiled to a component, so the page's verdicts are
 `component-test aggregate`'s verdicts by construction.
 
 **Live run**: point at any suite's component wasm (no transpile —
-deltic links it at run time), choose the missing-features declaration
+polyengine links it at run time), choose the missing-features declaration
 and a worker count, and the suite runs in a Web Worker pool — striped
 `index % workers` like every other runner, one suite instance per
 worker — streaming rows into the page. A
@@ -45,16 +45,16 @@ deliberate trap showing as tracked expected-fail debt on both targets.
   the Node selftest; the gating jco adapters (#5) must use this same
   module — the gate and the page must not drift.
 - `context.js` — the host-implemented `test-context` provider.
-- Live-run shards run in `../runner-deltic/browser-worker.mjs` (the
-  shared deltic worker; module workers cannot see import maps, so the
+- Live-run shards run in `../runner-polyengine/browser-worker.mjs` (the
+  shared polyengine worker; module workers cannot see import maps, so the
   run message carries asset URLs).
 - `app.mjs`, `index.html`, `viewer.css` — the page.
 - `selftest.mjs` — the drift gate `just verify-viewer` runs: the wasm
   aggregate must reproduce the CLI's verdicts over the fixture
-  pipeline; the suite-execution legs live in verify-deltic's selftest to the
+  pipeline; the suite-execution legs live in verify-polyengine's selftest to the
   documented verdicts, including striping partition equality.
-- `generated/`, `suite/`, `deltic/` — the aggregate component, demo
-  suite components, and pinned deltic assets (gitignored;
+- `generated/`, `suite/`, `polyengine/` — the aggregate component, demo
+  suite components, and pinned polyengine assets (gitignored;
   `just viewer-build` populates them).
 
 The page is thin glue over the two verified engines; browser-only

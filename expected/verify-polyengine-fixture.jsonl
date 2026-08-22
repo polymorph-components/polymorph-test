@@ -1,4 +1,4 @@
-{"component-test-results":"0.1","target":"deltic/deno","suite":{"name":"fixture_suite","artifact-sha256":"<sha256>"},"run":{"segment":0,"scheduling":"tags"}}
+{"component-test-results":"0.1","target":"polyengine/deno","suite":{"name":"fixture_suite","artifact-sha256":"<sha256>"},"run":{"segment":0,"scheduling":"tags"}}
 {"case":"fixture/trap/before","status":"pass","provenance":"returned","diagnostics-complete":true,"diagnostics":["before the storm"]}
 {"case":"fixture/trap/boom","status":"fail","provenance":"trap","detail":"trap: guest trapped: unreachable","diagnostics-complete":false,"diagnostics":["about to trap"]}
 {"case":"fixture/trap/after","status":"pass","provenance":"returned","diagnostics-complete":true,"diagnostics":["still alive in a fresh instance"]}
