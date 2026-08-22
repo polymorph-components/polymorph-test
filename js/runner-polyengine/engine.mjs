@@ -1,21 +1,21 @@
-// Shared engine glue for the deltic legs (browser shard worker + Node
-// selftest): load the repo-built deltic embedder bundle (`just
-// deltic-assets`, from the pinned JSR graph), translate the suite
+// Shared engine glue for the polyengine legs (browser shard worker + Node
+// selftest): load the repo-built polyengine embedder bundle (`just
+// polyengine-assets`, from the pinned JSR graph), translate the suite
 // component, and hand back exactly what harness.mjs `runCases` needs.
-// deltic is a runtime linker — the suite arrives as the COMPONENT wasm
+// polyengine is a runtime linker — the suite arrives as the COMPONENT wasm
 // (no transpiled module, no core files, no imports module; WASI comes
 // from the bundle's wasi(), test-context from its ct-runner glue).
 //
 // The Context handed to runCases MUST be the bundle's own Context class:
 // `testContextImportRecord()` registers that exact class as the
-// `polymorph:test/test-context` host resource, and deltic lowers borrows
+// `polymorph:test/test-context` host resource, and polyengine lowers borrows
 // of it by class identity.
 
 /**
  * @param {object} input
- * @param {object|string} input.bundle  The deltic embedder module, or a URL
+ * @param {object|string} input.bundle  The polyengine embedder module, or a URL
  *   string to import it from (workers pass the URL; Node imports first).
- * @param {Uint8Array} input.translatorBytes  deltic-translator-shim.wasm.
+ * @param {Uint8Array} input.translatorBytes  polyengine-translator-shim.wasm.
  * @param {Uint8Array} input.suiteBytes  The suite COMPONENT wasm.
  * @param {[string, string][]} [input.env]  wasi:cli environment pairs.
  * @param {object} [input.hostImports]  SUT host-import record fragments
@@ -27,19 +27,19 @@
 export async function loadSuite(
   { bundle, translatorBytes, suiteBytes, env = [], hostImports = {} },
 ) {
-  const deltic = typeof bundle === "string" ? await import(bundle) : bundle;
-  const translator = await deltic.Translator.create(translatorBytes);
+  const polyengine = typeof bundle === "string" ? await import(bundle) : bundle;
+  const translator = await polyengine.Translator.create(translatorBytes);
   const { plan, adapters } = translator.translate(suiteBytes);
   const artifacts = { plan, componentBytes: suiteBytes, adapters };
 
   const imports = {
-    ...deltic.wasi({ cli: { env: Object.fromEntries(env) } }),
-    ...deltic.testContextImportRecord(),
+    ...polyengine.wasi({ cli: { env: Object.fromEntries(env) } }),
+    ...polyengine.testContextImportRecord(),
     ...hostImports,
   };
 
   const newTests = async () => {
-    const inst = await deltic.instantiate(artifacts, imports);
+    const inst = await polyengine.instantiate(artifacts, imports);
     const tests = inst.exports["polymorph:test/tests@0.1.0"] ?? inst.exports["tests"];
     if (tests === undefined) {
       throw new Error(
@@ -49,15 +49,15 @@ export async function loadSuite(
     return tests;
   };
 
-  // The suite's own L0 inventory (deltic reads it from the component,
+  // The suite's own L0 inventory (polyengine reads it from the component,
   // nested core modules included — the same records harness.mjs's
   // inventoryLookup reads from transpiled cores). A suite without records
   // yields an always-undefined lookup, and runCases throws inventory
   // drift on the first case — same posture as the jco worker.
-  const inventory = deltic.loadTagsInventory(suiteBytes);
+  const inventory = polyengine.loadTagsInventory(suiteBytes);
   const tagsOf = inventory === null
     ? () => undefined
-    : (name) => deltic.tagsOf(inventory, name);
+    : (name) => polyengine.tagsOf(inventory, name);
 
-  return { newTests, Context: deltic.Context, tagsOf };
+  return { newTests, Context: polyengine.Context, tagsOf };
 }

@@ -1,16 +1,16 @@
 {
-  // MODULE IDENTITY — deltic is consumed from JSR as exact-pinned
+  // MODULE IDENTITY — polyengine is consumed from JSR as exact-pinned
   // releases. Upstream is caret-honest (within a minor line releases stay
   // compatible; breaking changes bump the minor); the pin stays exact so
   // the version is reviewable here and one bump is one diff. Between
-  // releases every green deltic `main` commit also publishes
+  // releases every green polyengine `main` commit also publishes
   // `<next>-pre.g<shorthash>` prereleases (unordered hash versions — pin
   // exactly) for when a not-yet-released commit is needed. All four
-  // packages must carry the SAME version — `just verify-deltic`'s pin gate
-  // asserts that repo-wide.
+  // packages must carry the SAME version — `just verify-polyengine`'s pin
+  // gate asserts that repo-wide.
   //
-  // `@deltic/runtime/embedder` is mapped because `@deltic/wasi`
-  // imports it by bare specifier. `@deltic/translator` ships the translator
+  // `@polyengine/runtime/embedder` is mapped because `@polyengine/wasi`
+  // imports it by bare specifier. `@polyengine/translator` ships the translator
   // wasm built from the same commit: the Deno leg loads it through the
   // module graph (`defaultTranslator()`, permission-free) and the browser
   // leg extracts it from the lock-pinned module cache — no release-asset
@@ -21,14 +21,14 @@
   // re-run `deno install --entrypoint runner.ts browser-bundle-entry.ts` in
   // this directory, and commit the diff (see README.md "Pinning").
   "imports": {
-    "@deltic/ct-runner": "jsr:@deltic/ct-runner@0.2.0",
-    "@deltic/runtime/embedder": "jsr:@deltic/runtime@0.2.0/embedder",
-    "@deltic/runtime/shim": "jsr:@deltic/runtime@0.2.0/shim",
-    "@deltic/translator": "jsr:@deltic/translator@0.2.0",
-    "@deltic/wasi": "jsr:@deltic/wasi@0.2.0"
+    "@polyengine/ct-runner": "jsr:@polyengine/ct-runner@0.3.0",
+    "@polyengine/runtime/embedder": "jsr:@polyengine/runtime@0.3.0/embedder",
+    "@polyengine/runtime/shim": "jsr:@polyengine/runtime@0.3.0/shim",
+    "@polyengine/translator": "jsr:@polyengine/translator@0.3.0",
+    "@polyengine/wasi": "jsr:@polyengine/wasi@0.3.0"
   },
   // Deno's supply-chain minimum-dependency-age gate (24h default) applies
-  // even to exact prerelease pins; deltic publishes per commit, so the
+  // even to exact prerelease pins; polyengine publishes per commit, so the
   // scope is excluded (wildcard excludes need Deno >= 2.9; CI pins 2.9.5).
-  "minimumDependencyAge": { "age": "P1D", "exclude": ["jsr:@deltic/*"] }
+  "minimumDependencyAge": { "age": "P1D", "exclude": ["jsr:@polyengine/*"] }
 }

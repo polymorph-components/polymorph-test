@@ -2,19 +2,19 @@
 // (`just verify-viewer`):
 //
 // 1. Aggregation: the wasm-compiled viewer-aggregate COMPONENT, run
-//    under deltic exactly as the page runs it (js/viewer/deltic.mjs),
+//    under polyengine exactly as the page runs it (js/viewer/polyengine.mjs),
 //    must reproduce the CLI gate's verdicts over the fixture pipeline
 //    (same summary accounting, same expected-fail assessments).
 // 2. Gating-adapter options of the shared harness loop (#50):
 //    freshCases + caseTimeoutMs over synthetic cases.
 //
 // The suite-execution half of the old selftest lives in
-// js/runner-deltic/selftest.mjs now — same harness.mjs loop, same
-// suites, deltic engine (verify-deltic's last leg). Plain `node`:
+// js/runner-polyengine/selftest.mjs now — same harness.mjs loop, same
+// suites, polyengine engine (verify-polyengine's last leg). Plain `node`:
 // nothing here needs --experimental-wasm-jspi.
 //
 // Usage: node selftest.mjs <tests.lock> <targets.toml> <native.jsonl>
-//   <sim.jsonl> <deltic-embedder.mjs> <translator.wasm>
+//   <sim.jsonl> <polyengine-embedder.mjs> <translator.wasm>
 //   <viewer-aggregate.wasm>
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -30,21 +30,21 @@ const fail = (msg) => {
 if (!aggregatePath) {
   fail(
     "usage: selftest.mjs <tests.lock> <targets.toml> <native.jsonl> " +
-      "<sim.jsonl> <deltic-embedder.mjs> <translator.wasm> <viewer-aggregate.wasm>",
+      "<sim.jsonl> <polyengine-embedder.mjs> <translator.wasm> <viewer-aggregate.wasm>",
   );
 }
 
 // --- 1. Aggregation parity with the gate ---------------------------
-// The same instantiation deltic.mjs performs in-page, with fs reads.
-const deltic = await import(pathToFileURL(bundlePath).href);
-const translator = await deltic.Translator.create(
+// The same instantiation polyengine.mjs performs in-page, with fs reads.
+const polyengine = await import(pathToFileURL(bundlePath).href);
+const translator = await polyengine.Translator.create(
   new Uint8Array(readFileSync(translatorPath)),
 );
 const componentBytes = new Uint8Array(readFileSync(aggregatePath));
 const { plan, adapters } = translator.translate(componentBytes);
-const inst = await deltic.instantiate(
+const inst = await polyengine.instantiate(
   { plan, componentBytes, adapters },
-  deltic.wasi(),
+  polyengine.wasi(),
 );
 const aggregate = inst.exports.run;
 
@@ -131,11 +131,11 @@ expect(
     fail("vanished case on re-enumeration did not throw");
   }
   // mergeCounts stays exercised here (the striped suite legs live in
-  // js/runner-deltic/selftest.mjs).
+  // js/runner-polyengine/selftest.mjs).
   const twice = mergeCounts([counts, counts]);
   if (twice.total !== 6) fail(`mergeCounts: ${JSON.stringify(twice)}`);
 }
 
 console.log(
-  `viewer selftest ok: aggregate ${JSON.stringify(doc.summary)} (deltic-linked, no JSPI flag)`,
+  `viewer selftest ok: aggregate ${JSON.stringify(doc.summary)} (polyengine-linked, no JSPI flag)`,
 );

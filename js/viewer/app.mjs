@@ -11,7 +11,7 @@
 // stream into a live table, and the finished run downloads as
 // results-JSONL or feeds straight into the Results pane.
 import { envelope, mergeCounts, workerCount } from "./harness.mjs";
-import { aggregateEngine, bundleUrl, translatorUrl } from "./deltic.mjs";
+import { aggregateEngine, bundleUrl, translatorUrl } from "./polyengine.mjs";
 
 const $ = (id) => document.getElementById(id);
 
@@ -424,7 +424,7 @@ $("btn-run").onclick = async () => {
       Array.from({ length: jobs }, (_, index) =>
         new Promise((resolve, reject) => {
           const worker = new Worker(
-            new URL("../runner-deltic/browser-worker.mjs", import.meta.url),
+            new URL("../runner-polyengine/browser-worker.mjs", import.meta.url),
             { type: "module" },
           );
           worker.onmessage = ({ data }) => {

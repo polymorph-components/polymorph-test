@@ -19,7 +19,7 @@ default:
 ci: (gha::host-checks) (gha::verify)
 
 # Everything: host tests, component builds, all verification paths.
-all: build test test-wasm lock-check verify-embed verify-compose verify-cli verify-deltic verify-pipeline verify-aggregate verify-viewer verify-imports verify-emit
+all: build test test-wasm lock-check verify-embed verify-compose verify-cli verify-polyengine verify-pipeline verify-aggregate verify-viewer verify-imports verify-emit
 # The fast pre-commit checks: formatting, clippy, host tests, WIT
 # validation. The CI job of the same name runs the identical set
 # through gha::host-checks.
@@ -130,74 +130,75 @@ verify-cli: build
     diff -u expected/verify-run-sample.txt <(printf '%s\n' "$out")
     echo "verify-cli: output matches expected/ (compose-runner, run, wizen)"
 
-# The one-version-everywhere gate for the deltic pin (successor to the
-# retired fetch script's `assertPinConsistency`): every jsr:@deltic/*
-# specifier in every deno.json, and every @deltic package the lock
-# resolves, must name the SAME prerelease — one version names one
+# The one-version-everywhere gate for the polyengine pin (successor to the
+# retired fetch script's `assertPinConsistency`): every jsr:@polyengine/*
+# specifier in every deno.json, and every @polyengine package the lock
+# resolves, must name the SAME version — one version names one
 # upstream commit, and the browser assets are built from that same graph.
 #
-# CONTRACT: as of deltic pre-b297834 (A10), @deltic/protocol ships as a
+# CONTRACT: as of upstream pre-b297834 (A10; cut under the engine's former
+# name, deltic), @polyengine/protocol ships as a
 # stable, independently-versioned package (0.1.0, no per-commit prerelease
-# hash) that @deltic/{runtime,wasi} depend on transitively — it is not
-# named by any jsr:@deltic/*@<hash> specifier in deno.json and isn't part
+# hash) that @polyengine/{runtime,wasi} depend on transitively — it is not
+# named by any jsr:@polyengine/*@<hash> specifier in deno.json and isn't part
 # of the "one version names one commit" pin this gate polices. Excluded by
-# name rather than by pattern, so drift in any *other* @deltic package
+# name rather than by pattern, so drift in any *other* @polyengine package
 # still trips the gate. See contracts/embedder-api.md "Migration notes"
-# (upstream, pre-b297834) and js/runner-deltic/deno.lock.
-deltic-pin-gate:
+# (upstream, pre-b297834) and js/runner-polyengine/deno.lock.
+polyengine-pin-gate:
     #!/usr/bin/env bash
     set -euo pipefail
-    configs=(js/runner-deltic/deno.json)
-    v=$(grep -ho 'jsr:@deltic/[a-z-]*@[^/"]*' "${configs[@]}" | sed 's/.*@//' | sort -u)
-    test -n "$v" || { echo "deltic pin gate: no jsr:@deltic specifiers found" >&2; exit 1; }
-    [ "$(printf '%s\n' "$v" | wc -l)" = 1 ] || { echo "deltic pin drift: $v" >&2; exit 1; }
-    python3 - "$v" js/runner-deltic/deno.lock <<'PY'
+    configs=(js/runner-polyengine/deno.json)
+    v=$(grep -ho 'jsr:@polyengine/[a-z-]*@[^/"]*' "${configs[@]}" | sed 's/.*@//' | sort -u)
+    test -n "$v" || { echo "polyengine pin gate: no jsr:@polyengine specifiers found" >&2; exit 1; }
+    [ "$(printf '%s\n' "$v" | wc -l)" = 1 ] || { echo "polyengine pin drift: $v" >&2; exit 1; }
+    python3 - "$v" js/runner-polyengine/deno.lock <<'PY'
     import json, sys
     want, lock = sys.argv[1], json.load(open(sys.argv[2]))
-    stable = {"@deltic/protocol"}  # see CONTRACT note above deltic-pin-gate
+    stable = {"@polyengine/protocol"}  # see CONTRACT note above polyengine-pin-gate
     def pkg_name(k):
-        # k looks like "jsr:@deltic/foo@1.2.3" or "@deltic/foo@1.2.3"
+        # k looks like "jsr:@polyengine/foo@1.2.3" or "@polyengine/foo@1.2.3"
         rest = k[len("jsr:"):] if k.startswith("jsr:") else k
         return rest.rsplit("@", 1)[0]
     bad = {k: r for k, r in lock.get("specifiers", {}).items()
-           if "@deltic/" in k and r != want and pkg_name(k) not in stable}
-    bad.update({k: k for k in lock.get("jsr", {}) if k.startswith("@deltic/")
+           if "@polyengine/" in k and r != want and pkg_name(k) not in stable}
+    bad.update({k: k for k in lock.get("jsr", {}) if k.startswith("@polyengine/")
                 and not k.endswith("@" + want) and pkg_name(k) not in stable})
     if bad:
-        sys.exit(f"deltic lock drift (want {want}): {sorted(bad)}")
+        sys.exit(f"polyengine lock drift (want {want}): {sorted(bad)}")
     PY
-    echo "deltic pin gate: all @deltic packages pinned to $v (protocol excluded, stable)"
+    echo "polyengine pin gate: all @polyengine packages pinned to $v (protocol excluded, stable)"
 
-# The deltic browser-leg assets, built from the pinned JSR graph (no
+# The polyengine browser-leg assets, built from the pinned JSR graph (no
 # network fetch, no sha bookkeeping — deno.lock carries JSR package
 # integrity and --frozen enforces it):
 #
-#   target/deltic-browser/deltic-embedder.mjs         bundled from
-#       js/runner-deltic/browser-bundle-entry.ts (embedder API +
+#   target/polyengine-browser/polyengine-embedder.mjs         bundled from
+#       js/runner-polyengine/browser-bundle-entry.ts (embedder API +
 #       Translator + ct-runner glue + wasi shims, one platform-neutral
 #       ES module — what the browser worker and the node selftest load)
-#   target/deltic-browser/deltic-translator-shim.wasm the translator
-#       asset packaged in @deltic/translator, copied out of the
+#   target/polyengine-browser/polyengine-translator-shim.wasm the translator
+#       asset packaged in @polyengine/translator, copied out of the
 #       lock-pinned module cache (the Deno runner leg needs no copy: it
 #       loads the packaged translator through the module graph)
 #
 # The directory is version-free on purpose: the lock owns versioning.
-deltic-assets: deltic-pin-gate
+polyengine-assets: polyengine-pin-gate
     #!/usr/bin/env bash
     set -euo pipefail
-    out=target/deltic-browser
+    out=target/polyengine-browser
     mkdir -p "$out"
-    deno bundle --config js/runner-deltic/deno.json --frozen --platform browser \
-        -o "$out/deltic-embedder.mjs" js/runner-deltic/browser-bundle-entry.ts
+    deno bundle --config js/runner-polyengine/deno.json --frozen --platform browser \
+        -o "$out/polyengine-embedder.mjs" js/runner-polyengine/browser-bundle-entry.ts
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-    deno info --json --config js/runner-deltic/deno.json --frozen @deltic/translator \
+    deno info --json --config js/runner-polyengine/deno.json --frozen @polyengine/translator \
         > "$tmp/info.json"
-    pin=$(grep -o 'jsr:@deltic/runtime@[^/"]*' js/runner-deltic/deno.json | head -1 | sed 's/.*@//')
-    python3 - "$tmp/info.json" "$out/deltic-translator-shim.wasm" "$pin" <<'PY'
+    pin=$(grep -o 'jsr:@polyengine/runtime@[^/"]*' js/runner-polyengine/deno.json | head -1 | sed 's/.*@//')
+    python3 - "$tmp/info.json" "$out/polyengine-translator-shim.wasm" "$pin" <<'PY'
     import json, sys
     graph = json.load(open(sys.argv[1]))
     want = sys.argv[3]
-    mods = [m for m in graph["modules"] if "/@deltic/" in m.get("specifier", "")]
+    mods = [m for m in graph["modules"] if "/@polyengine/" in m.get("specifier", "")]
     bad = {m["specifier"] for m in mods if want not in m["specifier"]}
     if bad:
         sys.exit(f"pin drift in translator graph (expected {want}): {bad}")
@@ -217,30 +218,30 @@ deltic-assets: deltic-pin-gate
     open(sys.argv[2], "wb").write(body)
     PY
 
-# Path 3: deltic-deno runner (runner-is-provider, like Path 3, but no
-# transpile step, no generated tree, and no engine flag — deltic is a
+# Path 3: polyengine-deno runner (runner-is-provider, like Path 3, but no
+# transpile step, no generated tree, and no engine flag — polyengine is a
 # runtime linker; the contract's async exports run on the callback ABI
-# under stock Deno). Pinned to exact deltic JSR prereleases by
-# js/runner-deltic/deno.json, with deno.lock enforced via --frozen and
-# agreement asserted by deltic-pin-gate. The Deno leg's translator comes
-# from the packaged @deltic/translator through the module graph; the
-# browser/node legs use the repo-built assets (`just deltic-assets`).
+# under stock Deno). Pinned to exact polyengine JSR releases by
+# js/runner-polyengine/deno.json, with deno.lock enforced via --frozen and
+# agreement asserted by polyengine-pin-gate. The Deno leg's translator comes
+# from the packaged @polyengine/translator through the module graph; the
+# browser/node legs use the repo-built assets (`just polyengine-assets`).
 # Tag scheduling comes from the suite's own embedded
-# inventory (deltic#25): the fixture leg runs --missing hsm exactly like
+# inventory (polyengine#25): the fixture leg runs --missing hsm exactly like
 # Paths 1/4 and schedules the hsm case out as not-applicable; the sample
 # legs reuse Path 2/3's human golden and Path 2/4's fold golden. The
-# selftest leg drives the BROWSER worker's engine path (js/runner-deltic/
+# selftest leg drives the BROWSER worker's engine path (js/runner-polyengine/
 # engine.mjs + the shared harness.mjs case loop) over the pinned embedder
 # bundle under plain node — no --experimental-wasm-jspi: the callback ABI
 # needs no engine flag, which is the browser-leg premise.
-verify-deltic: build deltic-assets
+verify-polyengine: build polyengine-assets
     #!/usr/bin/env bash
     set -euo pipefail
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-    translator=target/deltic-browser/deltic-translator-shim.wasm
-    bundle=target/deltic-browser/deltic-embedder.mjs
-    run() { deno run --allow-read=target --config js/runner-deltic/deno.json --frozen \
-        js/runner-deltic/runner.ts "$@"; }
+    translator=target/polyengine-browser/polyengine-translator-shim.wasm
+    bundle=target/polyengine-browser/polyengine-embedder.mjs
+    run() { deno run --allow-read=target --config js/runner-polyengine/deno.json --frozen \
+        js/runner-polyengine/runner.ts "$@"; }
     norm() { sed -E -e 's/"artifact-sha256":"[0-9a-f]{64}"/"artifact-sha256":"<sha256>"/' \
         -e 's/,"duration-ms":[0-9]+//g'; }
     fold() { cargo run -q -p component-test-cli -- fold "$@"; }
@@ -249,7 +250,7 @@ verify-deltic: build deltic-assets
     diff -u expected/verify-run-sample.txt <(printf '%s\n' "$out")
     run {{release_dir}}/sample_suite.wasm --jsonl > "$tmp/sample.jsonl" && code=0 || code=$?
     test "$code" -eq 1
-    norm < "$tmp/sample.jsonl" | diff -u expected/verify-deltic-sample.jsonl -
+    norm < "$tmp/sample.jsonl" | diff -u expected/verify-polyengine-sample.jsonl -
     fold components/sample-suite/tests.lock < "$tmp/sample.jsonl" \
         > "$tmp/sample-fold.txt" && code=0 || code=$?
     test "$code" -eq 1
@@ -257,14 +258,14 @@ verify-deltic: build deltic-assets
     run {{release_dir}}/fixture_suite.wasm --jsonl --missing hsm \
         > "$tmp/fixture.jsonl" && code=0 || code=$?
     test "$code" -eq 1
-    norm < "$tmp/fixture.jsonl" | diff -u expected/verify-deltic-fixture.jsonl -
+    norm < "$tmp/fixture.jsonl" | diff -u expected/verify-polyengine-fixture.jsonl -
     fold components/fixture-suite/tests.lock < "$tmp/fixture.jsonl" \
         > "$tmp/fixture-fold.txt" && code=0 || code=$?
     test "$code" -eq 1
-    diff -u expected/verify-deltic-fixture-fold.txt "$tmp/fixture-fold.txt"
-    node js/runner-deltic/selftest.mjs "$bundle" "$translator" \
+    diff -u expected/verify-polyengine-fixture-fold.txt "$tmp/fixture-fold.txt"
+    node js/runner-polyengine/selftest.mjs "$bundle" "$translator" \
         {{release_dir}}/sample_suite.wasm {{release_dir}}/fixture_suite.wasm
-    echo "verify-deltic: output matches expected/ (incl. shared human + fold goldens)"
+    echo "verify-polyengine: output matches expected/ (incl. shared human + fold goldens)"
 
 # Path 4: inventory + results pipeline (lock check, JSONL fold). The
 # fixture leg exercises the JSONL wire shape for trap provenance,
@@ -359,25 +360,25 @@ emit-demo: build
 # --- viewer ------------------------------------------------------------
 
 # Build the viewer's engines: the viewer-aggregate component (the gate's
-# aggregation compiled to wasm — runtime-linked by deltic in the page,
+# aggregation compiled to wasm — runtime-linked by polyengine in the page,
 # no transpile step) and the demo suites (component wasm, verbatim),
-# plus the pinned deltic assets copied beside the viewer so local serve
-# and Pages share one relative layout (js/viewer/deltic.mjs).
-viewer-build: build deltic-assets
+# plus the pinned polyengine assets copied beside the viewer so local serve
+# and Pages share one relative layout (js/viewer/polyengine.mjs).
+viewer-build: build polyengine-assets
     #!/usr/bin/env bash
     set -euo pipefail
     cargo build --release --target wasm32-wasip2 -p viewer-aggregate
-    mkdir -p js/viewer/deltic js/viewer/generated js/viewer/suite
-    cp target/deltic-browser/deltic-translator-shim.wasm \
-        target/deltic-browser/deltic-embedder.mjs js/viewer/deltic/
+    mkdir -p js/viewer/polyengine js/viewer/generated js/viewer/suite
+    cp target/polyengine-browser/polyengine-translator-shim.wasm \
+        target/polyengine-browser/polyengine-embedder.mjs js/viewer/polyengine/
     cp {{release_dir}}/viewer_aggregate.wasm js/viewer/generated/viewer-aggregate.wasm
     cp {{release_dir}}/sample_suite.wasm {{release_dir}}/fixture_suite.wasm js/viewer/suite/
 
-# The viewer's drift gate: the wasm aggregate under deltic (exactly the
+# The viewer's drift gate: the wasm aggregate under polyengine (exactly the
 # page's instantiation) must reproduce the CLI gate's verdicts over the
 # fixture pipeline, plus the shared harness loop's gating adapters over
 # synthetic cases. Plain node — no JSPI flag anywhere. The suite-
-# execution legs live in verify-deltic's selftest. The page itself is
+# execution legs live in verify-polyengine's selftest. The page itself is
 # thin glue over these engines plus worker plumbing.
 verify-viewer: viewer-build
     #!/usr/bin/env bash
@@ -395,8 +396,8 @@ verify-viewer: viewer-build
     node js/viewer/selftest.mjs \
         "$tmp/tests.lock" examples/aggregate/targets.toml \
         "$tmp/native.jsonl" "$tmp/sim.jsonl" \
-        js/viewer/deltic/deltic-embedder.mjs \
-        js/viewer/deltic/deltic-translator-shim.wasm \
+        js/viewer/polyengine/polyengine-embedder.mjs \
+        js/viewer/polyengine/polyengine-translator-shim.wasm \
         js/viewer/generated/viewer-aggregate.wasm
 
 # The shared consumer glue (import binding, envelope normalization,

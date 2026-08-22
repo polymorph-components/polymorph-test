@@ -1,12 +1,12 @@
-// The deltic engines' drift gate (verify-deltic's selftest leg) — the
+// The polyengine engines' drift gate (verify-polyengine's selftest leg) — the
 // runtime-linked sibling of js/viewer/selftest.mjs, running the SAME
-// harness.mjs case loop over deltic-instantiated suites. Plain `node`,
-// NO --experimental-wasm-jspi: deltic's callback-ABI path needs no
+// harness.mjs case loop over polyengine-instantiated suites. Plain `node`,
+// NO --experimental-wasm-jspi: polyengine's callback-ABI path needs no
 // engine flag, which is the browser-leg premise this gate pins on every
-// PR (the real-browser proof lives in deltic's own post-merge lanes).
+// PR (the real-browser proof lives in polyengine's own post-merge lanes).
 //
-//   node js/runner-deltic/selftest.mjs <deltic-embedder.mjs> \
-//     <deltic-translator-shim.wasm> <sample_suite.wasm> <fixture_suite.wasm>
+//   node js/runner-polyengine/selftest.mjs <polyengine-embedder.mjs> \
+//     <polyengine-translator-shim.wasm> <sample_suite.wasm> <fixture_suite.wasm>
 
 import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
@@ -17,7 +17,7 @@ import { loadSuite } from "./engine.mjs";
 const [bundlePath, translatorPath, samplePath, fixturePath] = process.argv.slice(2);
 if (!fixturePath) {
   console.error(
-    "usage: node js/runner-deltic/selftest.mjs <deltic-embedder.mjs> " +
+    "usage: node js/runner-polyengine/selftest.mjs <polyengine-embedder.mjs> " +
       "<translator.wasm> <sample_suite.wasm> <fixture_suite.wasm>",
   );
   process.exit(2);
@@ -71,7 +71,7 @@ async function run(engine, { missing = [], only, shard } = {}) {
   console.log("selftest: sample verdicts ok (callback ABI, no JSPI flag)");
 }
 
-// --- fixture: trap containment + tag scheduling through the deltic engine -----
+// --- fixture: trap containment + tag scheduling through the polyengine engine -----
 {
   const engine = await suiteOf(fixturePath);
   const { counts, events } = await run(engine, { missing: ["hsm"] });
@@ -129,7 +129,7 @@ async function run(engine, { missing = [], only, shard } = {}) {
   );
   console.log("selftest: only -> deselected census ok");
 
-  // Striping partition equality (harness semantics over the deltic engine):
+  // Striping partition equality (harness semantics over the polyengine engine):
   // two shards merge to the full counts, disjoint cases, full union.
   const s0 = await run(engine, { missing: ["hsm"], shard: { index: 0, count: 2 } });
   const s1 = await run(engine, { missing: ["hsm"], shard: { index: 1, count: 2 } });
@@ -141,4 +141,4 @@ async function run(engine, { missing = [], only, shard } = {}) {
   console.log("selftest: striping partition equality ok");
 }
 
-console.log("selftest: deltic engines ok");
+console.log("selftest: polyengine engines ok");

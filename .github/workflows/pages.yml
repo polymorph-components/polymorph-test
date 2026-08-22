@@ -59,18 +59,18 @@ jobs:
         # The tree mirrors the repository layout: the viewer resolves
         # its engines and the demo fixtures by relative path (see
         # js/viewer/README.md), so publishing preserves paths instead
-        # of flattening. Everything is runtime-linked by deltic in the
+        # of flattening. Everything is runtime-linked by polyengine in the
         # page — no transpiled trees, no shim node_modules.
         run: |
           set -euo pipefail
-          mkdir -p _site/js/viewer _site/js/runner-deltic _site/components/fixture-suite _site/examples/aggregate _site/expected
+          mkdir -p _site/js/viewer _site/js/runner-polyengine _site/components/fixture-suite _site/examples/aggregate _site/expected
           cp -r js/viewer/index.html js/viewer/app.mjs js/viewer/viewer.css \
-                js/viewer/harness.mjs js/viewer/context.js js/viewer/deltic.mjs \
+                js/viewer/harness.mjs js/viewer/context.js js/viewer/polyengine.mjs \
                 js/viewer/README.md js/viewer/generated js/viewer/suite \
-                js/viewer/deltic \
+                js/viewer/polyengine \
                 _site/js/viewer/
-          cp js/runner-deltic/browser-worker.mjs js/runner-deltic/engine.mjs \
-                _site/js/runner-deltic/
+          cp js/runner-polyengine/browser-worker.mjs js/runner-polyengine/engine.mjs \
+                _site/js/runner-polyengine/
           cp components/fixture-suite/tests.lock _site/components/fixture-suite/
           cp examples/aggregate/targets.toml _site/examples/aggregate/
           cp expected/verify-pipeline-fixture.jsonl _site/expected/

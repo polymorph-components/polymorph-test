@@ -37,9 +37,9 @@ jobs:
 
   # The full verification matrix: component builds, all execution
   # paths (host-embed runner, composed wasi:cli runner under wasmtime,
-  # deltic runner under stock Deno + its selftest under plain Node,
+  # polyengine runner under stock Deno + its selftest under plain Node,
   # inventory + results pipeline), lockfile drift checks. No engine
-  # flags: the jco/JSPI lane was deleted in the deltic migration.
+  # flags: the jco/JSPI lane was deleted in the deltic (now polyengine) migration.
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 25

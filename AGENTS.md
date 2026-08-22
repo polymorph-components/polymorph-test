@@ -68,7 +68,7 @@ components/           guest components (build with --target wasm32-wasip2)
   drift-fixture            broken by design: raw registration, drift check
   zero-gen-fixture         broken by design: zero-row decline generator
   hang-fixture             broken by design: CPU spin + async wedge (#45)
-js/runner-deltic/     deltic runner leg: CLI, browser shard worker, node
+js/runner-polyengine/     polyengine runner leg: CLI, browser shard worker, node
                       selftest (runner-is-provider topology; release-pinned)
 actions/              composite GitHub Actions for consumers (#14):
                       aggregate (matrix -> job summary, findings ->
@@ -98,11 +98,11 @@ with copies; symlinks require `core.symlinks` on Windows.
 
 wasmtime 47 (`-W component-model-async -S p3`), wac-cli 0.10, wit-bindgen
 0.60, Node 24 (plain — the selftest legs; no engine flags anywhere:
-deltic's callback ABI needs no JSPI), deno 2.9 (deltic runner
-leg + browser-asset build; deltic itself is consumed from JSR as exact
-prerelease pins — see `js/runner-deltic/README.md`), Rust
+polyengine's callback ABI needs no JSPI), deno 2.9 (polyengine runner
+leg + browser-asset build; polyengine itself is consumed from JSR as exact
+release pins — see `js/runner-polyengine/README.md`), Rust
 target `wasm32-wasip2`, wasm-tools (WIT validation), just (task
-runner). jco is GONE from this repo (the deltic migration's Phase 4
+runner). jco is GONE from this repo (the deltic (now polyengine) migration's Phase 4
 cutover); its findings in `docs/findings.md` are historical. Known
 sharp edges are catalogued in `docs/findings.md` — read
 it before fighting the toolchain; your bug is probably finding #5, #6,
@@ -152,17 +152,18 @@ them before committing anything cross-cutting):
 2. **Composed runner** (see `examples/compose/README.md`): bundle via
    `wac compose`, plug via `wac plug`, run under `wasmtime run -W
    component-model-async -S p3`. Same sample-suite verdicts.
-3. **deltic runner + browser leg** (see `js/runner-deltic/README.md`):
-   drive the suite directly under deltic — no transpile step, no engine
-   flag; JSR-pinned in `js/runner-deltic/deno.json` + `deno.lock`. Same
+3. **polyengine runner + browser leg** (see `js/runner-polyengine/README.md`):
+   drive the suite directly under polyengine — no transpile step, no engine
+   flag; JSR-pinned in `js/runner-polyengine/deno.json` + `deno.lock`. Same
    sample verdicts (shared human + fold goldens); tag scheduling from the
    suite's own embedded inventory (fixture leg runs `--missing hsm` like
-   Paths 1/4, lane goldens in `expected/verify-deltic-*`). The browser
+   Paths 1/4, lane goldens in `expected/verify-polyengine-*`). The browser
    worker (`browser-worker.mjs`, drop-in for `page-runner.mjs` via
    `workerUrl`) shares `harness.mjs`'s case loop; `selftest.mjs` gates
-   that engine path under plain node as `verify-deltic`'s last leg. (The
+   that engine path under plain node as `verify-polyengine`'s last leg. (The
    jco-node runner that used to be this path was deleted in the deltic
-   migration's Phase 4; `js/viewer/browser-worker.mjs` remains as
+   (now polyengine) migration's Phase 4; `js/viewer/browser-worker.mjs`
+   remains as
    consumer-facing glue for transpiled-module layouts.)
 4. **Inventory + results pipeline**:
    ```sh

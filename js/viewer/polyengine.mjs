@@ -1,11 +1,11 @@
 // Runtime-linked viewer engines (the jco replacement's Phase 4): the
-// deltic browser assets (repo-built from the pinned JSR graph — see
-// js/runner-deltic/README.md) are deployed beside the viewer by
+// polyengine browser assets (repo-built from the pinned JSR graph — see
+// js/runner-polyengine/README.md) are deployed beside the viewer by
 // `just viewer-build` (locally and on Pages alike — same relative
 // layout), and the aggregation component is instantiated at first use.
 //
-//   ./deltic/deltic-embedder.mjs         one platform-neutral ES module
-//   ./deltic/deltic-translator-shim.wasm the runtime linker's translator
+//   ./polyengine/polyengine-embedder.mjs         one platform-neutral ES module
+//   ./polyengine/polyengine-translator-shim.wasm the runtime linker's translator
 //   ./generated/viewer-aggregate.wasm    the aggregation COMPONENT
 //                                        (the gate's own Rust — no
 //                                        transpile step anymore)
@@ -13,9 +13,9 @@
 // Browser-only (fetch-based); js/viewer/selftest.mjs builds the same
 // engine under node with fs reads.
 
-const ASSETS = new URL("./deltic/", import.meta.url);
-export const bundleUrl = new URL("deltic-embedder.mjs", ASSETS).href;
-export const translatorUrl = new URL("deltic-translator-shim.wasm", ASSETS).href;
+const ASSETS = new URL("./polyengine/", import.meta.url);
+export const bundleUrl = new URL("polyengine-embedder.mjs", ASSETS).href;
+export const translatorUrl = new URL("polyengine-translator-shim.wasm", ASSETS).href;
 
 async function fetchBytes(url) {
   const res = await fetch(url);
@@ -27,7 +27,7 @@ let enginePromise;
 
 /**
  * The aggregation engine: `(lock, manifest, [[target, jsonl], …]) ->
- * Promise<json string>`. Instantiated once, lazily — deltic translates
+ * Promise<json string>`. Instantiated once, lazily — polyengine translates
  * the component in-page (~ms; no generated JS anywhere, CSP baseline
  * `wasm-unsafe-eval` only). A guest-side `result::err` surfaces as a
  * thrown error with `.payload` carrying the message, exactly like the
@@ -35,16 +35,16 @@ let enginePromise;
  */
 export function aggregateEngine() {
   enginePromise ??= (async () => {
-    const deltic = await import(bundleUrl);
+    const polyengine = await import(bundleUrl);
     const [translatorBytes, componentBytes] = await Promise.all([
       fetchBytes(translatorUrl),
       fetchBytes(new URL("./generated/viewer-aggregate.wasm", import.meta.url)),
     ]);
-    const translator = await deltic.Translator.create(translatorBytes);
+    const translator = await polyengine.Translator.create(translatorBytes);
     const { plan, adapters } = translator.translate(componentBytes);
-    const inst = await deltic.instantiate(
+    const inst = await polyengine.instantiate(
       { plan, componentBytes, adapters },
-      deltic.wasi(),
+      polyengine.wasi(),
     );
     return inst.exports.run;
   })();
