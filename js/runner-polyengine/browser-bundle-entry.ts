@@ -12,6 +12,16 @@
 // (`just polyengine-assets` builds it; verify-polyengine/viewer-build consume it.)
 
 export * from "@polyengine/runtime/embedder";
+// A22: @polyengine/runtime@0.5.0's embedder dropped its A9 courtesy
+// re-exports (error classes/predicates, brands, handle classes, suspending,
+// realm crossing, copy registry) — that vocabulary now lives only in
+// @polyengine/protocol. worker-main.mjs's and README.md's "Browser leg"
+// section document downstream bundled workers relying on `ComponentException`
+// (and, by the same contract, the rest of the vocabulary) being reachable
+// off this bundle's exports alongside the embedder machinery, so it is
+// re-exported here too. No name collisions: the embedder no longer exports
+// these names (contracts/embedder-api.md A22; brief rule 5).
+export * from "@polyengine/protocol";
 export { Translator } from "@polyengine/runtime/shim";
 export * from "@polyengine/ct-runner";
 export { wasi } from "@polyengine/wasi";

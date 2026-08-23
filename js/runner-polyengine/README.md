@@ -55,9 +55,12 @@ repo bundles one worker entry — the polyengine engine surface, the message
 loop, and its own host module, resolved through one import map — and
 passes `workerMain({ polyengine, suiteImports })` its inlined engine and an
 import-record factory. One bundle means one embedder module instance,
-which is what keeps `instanceof ComponentException` true across the host-module
-boundary; workers resolve no import maps, so this is the only sound
-shape. The stock `browser-worker.mjs` is `workerMain()` with the
+which is what keeps stateful handles (streams, futures) minted through it
+usable across the host-module boundary — `@polyengine/protocol`'s errors
+and brand checks (e.g. `isComponentException`) are cross-copy safe by
+construction (its own stable version line), but the embedder's runtime
+machinery is not; workers resolve no import maps, so this is the only
+sound shape. The stock `browser-worker.mjs` is `workerMain()` with the
 bundleUrl-loading defaults.
 
 ## Pinning
@@ -72,9 +75,13 @@ bump is one diff. Between releases every green polyengine `main` commit
 also publishes `<next>-pre.g<shorthash>` prereleases (unordered hash
 versions — pin exactly) for when a not-yet-released commit is needed.
 
-- `deno.json` — the import map holds the five `jsr:@polyengine/...@<version>`
-  specifiers. `@polyengine/runtime/embedder` is mapped because
-  `@polyengine/wasi` imports it by bare specifier.
+- `deno.json` — the import map holds the five lockstep
+  `jsr:@polyengine/{ct-runner,runtime/embedder,runtime/shim,translator,wasi}@<version>`
+  specifiers plus a sixth, independently-versioned `@polyengine/protocol`
+  pin. `@polyengine/runtime/embedder` is mapped because
+  `browser-bundle-entry.ts` (and downstream bundled-worker consumers)
+  import it directly — as of upstream A22, `@polyengine/wasi` itself is
+  protocol-only internally, so this mapping is no longer for wasi's sake.
   `minimumDependencyAge` exempts the `@polyengine` scope so same-day
   publishes resolve (Deno >= 2.9 for the wildcard exclude).
 - `deno.lock` — carries JSR package integrity for that graph and is
