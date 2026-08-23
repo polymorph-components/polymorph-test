@@ -149,7 +149,11 @@ polyengine-pin-gate:
     #!/usr/bin/env bash
     set -euo pipefail
     configs=(js/runner-polyengine/deno.json)
-    v=$(grep -ho 'jsr:@polyengine/[a-z-]*@[^/"]*' "${configs[@]}" | sed 's/.*@//' | sort -u)
+    # A22: @polyengine/protocol is a second, independently-versioned line
+    # (repo-internal configs may exact-pin it too now) — exclude it from the
+    # lockstep-version extraction the same way it's excluded below against
+    # the lock, so pinning it in deno.json doesn't read as drift.
+    v=$(grep -ho 'jsr:@polyengine/[a-z-]*@[^/"]*' "${configs[@]}" | grep -v '^jsr:@polyengine/protocol@' | sed 's/.*@//' | sort -u)
     test -n "$v" || { echo "polyengine pin gate: no jsr:@polyengine specifiers found" >&2; exit 1; }
     [ "$(printf '%s\n' "$v" | wc -l)" = 1 ] || { echo "polyengine pin drift: $v" >&2; exit 1; }
     python3 - "$v" js/runner-polyengine/deno.lock <<'PY'

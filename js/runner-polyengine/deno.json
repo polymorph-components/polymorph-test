@@ -9,23 +9,35 @@
   // packages must carry the SAME version — `just verify-polyengine`'s pin
   // gate asserts that repo-wide.
   //
-  // `@polyengine/runtime/embedder` is mapped because `@polyengine/wasi`
-  // imports it by bare specifier. `@polyengine/translator` ships the translator
+  // `@polyengine/runtime/embedder` is mapped because `browser-bundle-entry.ts`
+  // (and this runner leg's downstream bundled-worker consumers) import it
+  // directly for the embedder machinery it still carries post-A22 (the wasi
+  // module itself is protocol-only internally as of 0.5.0, so this mapping
+  // no longer exists for wasi's sake — see contracts/embedder-api.md A22).
+  // Applications that load the embedder in more than one config must still
+  // resolve ONE runtime version: stateful handles minted by one copy are
+  // refused by another. Published host modules couple only to
+  // `@polyengine/protocol`, whose copies are harmless by construction (its
+  // own independent version line, see polyengine-pin-gate's CONTRACT note).
+  // `@polyengine/translator` ships the translator
   // wasm built from the same commit: the Deno leg loads it through the
   // module graph (`defaultTranslator()`, permission-free) and the browser
   // leg extracts it from the lock-pinned module cache — no release-asset
   // fetch, no sha bookkeeping. `deno.lock` carries JSR package integrity
   // and is enforced with `--frozen` everywhere.
   //
-  // Bumping: change the version in these five specifiers, delete deno.lock,
-  // re-run `deno install --entrypoint runner.ts browser-bundle-entry.ts` in
-  // this directory, and commit the diff (see README.md "Pinning").
+  // Bumping: change the version in these five lockstep specifiers, delete
+  // deno.lock, re-run `deno install --entrypoint runner.ts
+  // browser-bundle-entry.ts` in this directory, and commit the diff (see
+  // README.md "Pinning"). `@polyengine/protocol` is on its own independent
+  // version line (currently 0.2.2) and is bumped separately.
   "imports": {
-    "@polyengine/ct-runner": "jsr:@polyengine/ct-runner@0.4.0",
-    "@polyengine/runtime/embedder": "jsr:@polyengine/runtime@0.4.0/embedder",
-    "@polyengine/runtime/shim": "jsr:@polyengine/runtime@0.4.0/shim",
-    "@polyengine/translator": "jsr:@polyengine/translator@0.4.0",
-    "@polyengine/wasi": "jsr:@polyengine/wasi@0.4.0"
+    "@polyengine/ct-runner": "jsr:@polyengine/ct-runner@0.5.0",
+    "@polyengine/protocol": "jsr:@polyengine/protocol@0.2.2",
+    "@polyengine/runtime/embedder": "jsr:@polyengine/runtime@0.5.0/embedder",
+    "@polyengine/runtime/shim": "jsr:@polyengine/runtime@0.5.0/shim",
+    "@polyengine/translator": "jsr:@polyengine/translator@0.5.0",
+    "@polyengine/wasi": "jsr:@polyengine/wasi@0.5.0"
   },
   // Deno's supply-chain minimum-dependency-age gate (24h default) applies
   // even to exact prerelease pins; polyengine publishes per commit, so the
