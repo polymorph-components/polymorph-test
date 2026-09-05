@@ -1,6 +1,6 @@
 {
   "name": "@polymorph/test",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "license": "Apache-2.0",
   "//": "The polymorph:test stack's JS runner core on JSR — the one consumable JS surface (the repo-root npm-git facade is retired; this export map is the only one). Plain JS with relative and node: imports only; the browser-safe pieces (harness, context, imports, the workers) load in browsers unchanged, and the node: importers (node-runner, browser-driver) are Node/Deno-side drivers. The publish include-list IS the package: everything else under js/ is repo tooling (the polyengine runner leg, selftests, the viewer app).",
   "exports": {
@@ -12,7 +12,6 @@
     "./node-runner": "./node-runner.mjs",
     "./browser-driver": "./browser-driver.mjs",
     "./polyengine-worker": "./runner-polyengine/browser-worker.mjs",
-    "./polyengine-engine": "./runner-polyengine/engine.mjs",
     "./polyengine-worker-main": "./runner-polyengine/worker-main.mjs"
   },
   "publish": {
@@ -26,8 +25,7 @@
       "node-runner.mjs",
       "browser-driver.mjs",
       "runner-polyengine/worker-main.mjs",
-      "runner-polyengine/browser-worker.mjs",
-      "runner-polyengine/engine.mjs"
+      "runner-polyengine/browser-worker.mjs"
     ]
   }
 }

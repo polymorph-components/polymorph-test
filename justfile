@@ -234,8 +234,8 @@ polyengine-assets: polyengine-pin-gate
 # inventory (polyengine#25): the fixture leg runs --missing hsm exactly like
 # Paths 1/4 and schedules the hsm case out as not-applicable; the sample
 # legs reuse Path 2/3's human golden and Path 2/4's fold golden. The
-# selftest leg drives the BROWSER worker's engine path (js/runner-polyengine/
-# engine.mjs + the shared harness.mjs case loop) over the pinned embedder
+# selftest leg drives the BROWSER worker's engine path (ct-runner's
+# runSuite, as js/runner-polyengine/worker-main.mjs drives it) over the pinned embedder
 # bundle under plain node — no --experimental-wasm-jspi: the callback ABI
 # needs no engine flag, which is the browser-leg premise.
 verify-polyengine: build polyengine-assets

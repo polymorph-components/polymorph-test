@@ -69,7 +69,7 @@ jobs:
                 js/viewer/README.md js/viewer/generated js/viewer/suite \
                 js/viewer/polyengine \
                 _site/js/viewer/
-          cp js/runner-polyengine/browser-worker.mjs js/runner-polyengine/engine.mjs \
+          cp js/runner-polyengine/browser-worker.mjs js/runner-polyengine/worker-main.mjs \
                 _site/js/runner-polyengine/
           cp components/fixture-suite/tests.lock _site/components/fixture-suite/
           cp examples/aggregate/targets.toml _site/examples/aggregate/

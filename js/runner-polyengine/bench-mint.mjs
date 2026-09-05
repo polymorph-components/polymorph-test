@@ -66,6 +66,19 @@ console.error(
 const artifacts = { plan, componentBytes: suiteBytes, adapters };
 const TESTS = "polymorph:test/tests@0.1.0";
 
+// The host-side `test-context` provider, verbatim from ct-runner's internal
+// context.ts (un-exported since polyengine 0.6.0; runSuite wires its own,
+// but this bench drives `instantiate` directly and must supply one).
+class Context {
+  constructor(onDiagnostic) {
+    this.onDiagnostic = onDiagnostic;
+  }
+  // deno-lint-ignore require-await
+  async diagnostic(msg) {
+    this.onDiagnostic(msg);
+  }
+}
+
 function median(xs) {
   const v = [...xs].sort((a, b) => a - b);
   return v[Math.floor(v.length / 2)];
@@ -83,7 +96,7 @@ console.log(
 for (const n of caseCounts) {
   const imports = {
     ...polyengine.wasi({ cli: { env: { BENCH_CASES: String(n) } } }),
-    ...polyengine.testContextImportRecord(),
+    "polymorph:test/test-context@0.1.0": { Context },
   };
   const warmup = Math.min(3, instances);
   const samples = { instantiate: [], all1: [], all2: [], name0: [], run0: [] };
@@ -112,7 +125,7 @@ for (const n of caseCounts) {
       throw new Error(`unexpected case name '${name}'`);
     }
 
-    const ctx = new polyengine.Context(() => {});
+    const ctx = new Context(() => {});
     t = performance.now();
     await cases1[0].run(ctx); // resolves = pass; throws = fail/trap
     const run0 = performance.now() - t;

@@ -1,9 +1,10 @@
-// The polyengine engines' drift gate (verify-polyengine's selftest leg) — the
-// runtime-linked sibling of js/viewer/selftest.mjs, running the SAME
-// harness.mjs case loop over polyengine-instantiated suites. Plain `node`,
-// NO --experimental-wasm-jspi: polyengine's callback-ABI path needs no
-// engine flag, which is the browser-leg premise this gate pins on every
-// PR (the real-browser proof lives in polyengine's own post-merge lanes).
+// The polyengine engine's drift gate (verify-polyengine's selftest leg) — the
+// runtime-linked sibling of js/viewer/selftest.mjs, driving the SAME
+// ct-runner `runSuite` case loop the browser worker (./worker-main.mjs) and
+// the Deno leg (./runner.ts) use. Plain `node`, NO
+// --experimental-wasm-jspi: polyengine's callback-ABI path needs no engine
+// flag, which is the browser-leg premise this gate pins on every PR (the
+// real-browser proof lives in polyengine's own post-merge lanes).
 //
 //   node js/runner-polyengine/selftest.mjs <polyengine-embedder.mjs> \
 //     <polyengine-translator-shim.wasm> <sample_suite.wasm> <fixture_suite.wasm>
@@ -11,8 +12,7 @@
 import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { mergeCounts, runCases } from "../viewer/harness.mjs";
-import { loadSuite } from "./engine.mjs";
+import { mergeCounts } from "../viewer/harness.mjs";
 
 const [bundlePath, translatorPath, samplePath, fixturePath] = process.argv.slice(2);
 if (!fixturePath) {
@@ -23,38 +23,46 @@ if (!fixturePath) {
   process.exit(2);
 }
 
-const bundle = await import(pathToFileURL(bundlePath).href);
-const translatorBytes = new Uint8Array(readFileSync(translatorPath));
+const polyengine = await import(pathToFileURL(bundlePath).href);
+const translator = await polyengine.Translator.create(
+  new Uint8Array(readFileSync(translatorPath)),
+);
 
-async function suiteOf(path, env) {
-  return await loadSuite({
-    bundle,
-    translatorBytes,
-    suiteBytes: new Uint8Array(readFileSync(path)),
-    env,
-  });
+function artifactsOf(path) {
+  const suiteBytes = new Uint8Array(readFileSync(path));
+  const { plan, adapters } = translator.translate(suiteBytes);
+  return { plan, componentBytes: suiteBytes, adapters };
 }
 
-async function run(engine, { missing = [], only, shard } = {}) {
+async function run(artifacts, { missing, only, shard } = {}) {
   const events = [];
-  const counts = await runCases({
-    cases: await (await engine.newTests()).all(),
-    Context: engine.Context,
-    tagsOf: engine.tagsOf,
+  const counts = await polyengine.runSuite(artifacts, {
+    imports: polyengine.wasi({ cli: { env: {} } }),
+    target: "polyengine/node-selftest",
+    suiteName: "selftest",
     missing,
     only,
     shard,
-    emit: (event, index) => events.push({ index, event }),
-    freshCases: async () => (await engine.newTests()).all(),
+    emit: (line, index) => {
+      // Envelope and terminator carry no case index — the worker drops them
+      // the same way (./worker-main.mjs).
+      if (index !== undefined) events.push({ index, event: JSON.parse(line) });
+    },
   });
   events.sort((a, b) => a.index - b.index);
-  return { counts, events: events.map((e) => e.event) };
+  // ./worker-main.mjs's counts derivation, verbatim: `RunCounts.total` is
+  // this stripe's pre-`only` census size, and the parent page-runner needs
+  // `selected` for its empty-selection check.
+  const selected = counts.passed + counts.failed + counts.skipped + counts.na;
+  return {
+    counts: { ...counts, selected, deselected: counts.total - selected },
+    events: events.map((e) => e.event),
+  };
 }
 
 // --- sample: the documented verdicts, no flags anywhere -----------------------
 {
-  const engine = await suiteOf(samplePath);
-  const { counts, events } = await run(engine);
+  const { counts, events } = await run(artifactsOf(samplePath));
   assert.deepEqual(counts, {
     passed: 1,
     failed: 1,
@@ -73,8 +81,8 @@ async function run(engine, { missing = [], only, shard } = {}) {
 
 // --- fixture: trap containment + tag scheduling through the polyengine engine -----
 {
-  const engine = await suiteOf(fixturePath);
-  const { counts, events } = await run(engine, { missing: ["hsm"] });
+  const fixture = artifactsOf(fixturePath);
+  const { counts, events } = await run(fixture, { missing: ["hsm"] });
   assert.deepEqual(counts, {
     passed: 6,
     failed: 1,
@@ -94,45 +102,41 @@ async function run(engine, { missing = [], only, shard } = {}) {
     case: "fixture/hsm/attest",
     status: "not-applicable",
     detail: "hsm",
+    "diagnostics-complete": true,
   });
   assert.equal(byCase["fixture/hsm/declined"].status, "pass");
   console.log("selftest: fixture trap + tag scheduling ok");
 
-  // Selection (#89): the unselected census is reported deselected —
-  // full coverage, never executed, capability winning over selection
-  // (hsm/attest stays not-applicable outside the filter, exactly the
-  // reference runner's precedence). The trap case is outside the
+  // Selection (#89): `runSuite` skips non-matching cases with no emit, so
+  // the deselected census is a count, not rows (docs/runner-policy.md's
+  // "selection is not capability" still holds — capability wins over
+  // selection for whatever the filter admits). The trap case is outside the
   // selection: nothing fails.
-  const sub = await run(engine, { missing: ["hsm"], only: "gen" });
+  const sub = await run(fixture, { missing: ["hsm"], only: "gen" });
   assert.deepEqual(sub.counts, {
     passed: 2,
     failed: 0,
     skipped: 0,
-    na: 1,
-    deselected: 5,
+    na: 0,
+    deselected: 6,
     selected: 2,
     total: 8,
   });
   const subByCase = Object.fromEntries(sub.events.map((e) => [e.case, e]));
-  assert.deepEqual(subByCase["fixture/trap/boom"], {
-    case: "fixture/trap/boom",
-    status: "deselected",
-    detail: "only gen",
-  });
-  assert.equal(subByCase["fixture/hsm/attest"].status, "not-applicable");
+  assert.equal(subByCase["fixture/trap/boom"], undefined, "deselected: no row");
   assert.equal(subByCase["fixture/gen/tc1"].status, "pass");
-  assert.equal(sub.events.length, 8, "full census reported");
-  // A selection matching nothing is a run error, not a vacuous green.
-  await assert.rejects(
-    () => run(engine, { only: "zzz" }),
-    /empty selection is a run error/,
-  );
-  console.log("selftest: only -> deselected census ok");
+  assert.equal(sub.events.length, 2, "only the selected cases are reported");
+  // A selection matching nothing is a vacuous run here; the PARENT
+  // (js/viewer/page-runner.mjs) turns `selected === 0` into the run error.
+  const none = await run(fixture, { missing: ["hsm"], only: "zzz" });
+  assert.equal(none.counts.selected, 0);
+  assert.equal(none.events.length, 0);
+  console.log("selftest: only -> selection counts ok");
 
-  // Striping partition equality (harness semantics over the polyengine engine):
-  // two shards merge to the full counts, disjoint cases, full union.
-  const s0 = await run(engine, { missing: ["hsm"], shard: { index: 0, count: 2 } });
-  const s1 = await run(engine, { missing: ["hsm"], shard: { index: 1, count: 2 } });
+  // Striping partition equality (runSuite semantics over the polyengine
+  // engine): two shards merge to the full counts, disjoint cases, full union.
+  const s0 = await run(fixture, { missing: ["hsm"], shard: { index: 0, count: 2 } });
+  const s1 = await run(fixture, { missing: ["hsm"], shard: { index: 1, count: 2 } });
   assert.deepEqual(mergeCounts([s0.counts, s1.counts]), counts);
   const names = (r) => r.events.map((e) => e.case);
   const union = new Set([...names(s0), ...names(s1)]);
@@ -141,4 +145,4 @@ async function run(engine, { missing = [], only, shard } = {}) {
   console.log("selftest: striping partition equality ok");
 }
 
-console.log("selftest: polyengine engines ok");
+console.log("selftest: polyengine engine ok");

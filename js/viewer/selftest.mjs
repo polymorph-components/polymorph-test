@@ -9,7 +9,7 @@
 //    freshCases + caseTimeoutMs over synthetic cases.
 //
 // The suite-execution half of the old selftest lives in
-// js/runner-polyengine/selftest.mjs now — same harness.mjs loop, same
+// js/runner-polyengine/selftest.mjs now — ct-runner's runSuite loop, same
 // suites, polyengine engine (verify-polyengine's last leg). Plain `node`:
 // nothing here needs --experimental-wasm-jspi.
 //
