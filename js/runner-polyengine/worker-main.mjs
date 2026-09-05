@@ -1,5 +1,11 @@
 // The polyengine shard worker's message loop, shared by the stock worker
-// (./browser-worker.mjs) and downstream repos' bundled workers.
+// (./browser-worker.mjs) and downstream repos' bundled workers. The case
+// loop is ct-runner's `runSuite` — the same engine path the Deno leg
+// (./runner.ts) drives — which mirrors js/viewer/harness.mjs semantics
+// (striping, freshCases, timeouts, tag scheduling) and provides
+// test-context itself. Per-shard rows are relayed as they are emitted;
+// the envelope and terminator are dropped (the parent, page-runner.mjs,
+// writes the single merged pair).
 //
 // A downstream conformance suite usually imports a SUT host module
 // (`polymorph:websocket/connections`, `polymorph:webcrypto/*`, …) that
@@ -32,9 +38,6 @@
 //      { kind: "counts", counts } on completion,
 //      { kind: "error", error } on harness breakage.
 
-import { runCases } from "../viewer/harness.mjs";
-import { loadSuite } from "./engine.mjs";
-
 async function fetchBytes(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`fetching ${url}: ${res.status}`);
@@ -52,7 +55,8 @@ async function fetchBytes(url) {
  * @param {(input: { polyengine: object, env: [string, string][] })
  *   => object | Promise<object>} [options.suiteImports]  Builds the
  *   SUT host-import record for one suite instance; merged over the
- *   engine's own wasi + test-context imports. Called once per run
+ *   engine's own wasi imports (`runSuite` wires test-context itself).
+ *   Called once per run
  *   message (instances share module-level host state exactly as the
  *   repos' Deno legs do).
  */
@@ -68,7 +72,7 @@ export function workerMain({ polyengine, suiteImports } = {}) {
       translatorUrl,
       suiteUrl,
       env = [],
-      missing = [],
+      missing,
       only,
       shard,
       caseTimeoutMs,
@@ -84,30 +88,47 @@ export function workerMain({ polyengine, suiteImports } = {}) {
       const hostImports = suiteImports
         ? await suiteImports({ polyengine: resolved, env })
         : undefined;
-      const { newTests, Context, tagsOf } = await loadSuite({
-        bundle: resolved,
-        translatorBytes,
-        suiteBytes,
-        env,
-        hostImports,
-      });
 
-      const counts = await runCases({
-        cases: await (await newTests()).all(),
-        Context,
-        tagsOf,
-        missing,
+      const translator = await resolved.Translator.create(translatorBytes);
+      const { plan, adapters } = translator.translate(suiteBytes);
+      const artifacts = { plan, componentBytes: suiteBytes, adapters };
+      const imports = {
+        ...resolved.wasi({ cli: { env: Object.fromEntries(env) } }),
+        // No test-context here: `runSuite` wires its own provider and
+        // errors on a caller collision (ct-runner/src/run-suite.ts).
+        ...hostImports,
+      };
+
+      const counts = await resolved.runSuite(artifacts, {
+        imports,
+        // The envelope this run message produces is discarded (the parent
+        // page-runner writes the single merged envelope for all shards),
+        // so target/suite name are placeholders, not run identity.
+        target: "polyengine/worker",
+        suiteName: "shard",
         only,
+        missing,
         shard,
         caseTimeoutMs,
-        emit: (event, index) => self.postMessage({ kind: "event", index, event }),
-        // `freshCases: false` reuses the census instance for the whole
-        // shard — the documented trade for corpora whose per-case fresh
-        // instances outrun the renderer's wasm-memory reservations (a
-        // trapped case then poisons the rest of the shard, loudly).
-        ...(freshCases ? { freshCases: async () => (await newTests()).all() } : {}),
+        // `freshCases: false` reuses one instance for the whole shard —
+        // the documented trade for corpora whose per-case fresh instances
+        // outrun the renderer's wasm-memory reservations (a trapped case
+        // then poisons the rest of the shard, loudly).
+        freshCases,
+        emit: (line, caseIndex) => {
+          // Envelope and `{"segment-end":true}` terminator carry no case
+          // index; the parent writes its own, so drop them here.
+          if (caseIndex === undefined) return;
+          self.postMessage({ kind: "event", index: caseIndex, event: JSON.parse(line) });
+        },
       });
-      self.postMessage({ kind: "counts", counts });
+      // `RunCounts.total` is this stripe's full case count, before `only`
+      // filtering; the parent's empty-selection check reads `selected`.
+      const selected = counts.passed + counts.failed + counts.skipped + counts.na;
+      self.postMessage({
+        kind: "counts",
+        counts: { ...counts, selected, deselected: counts.total - selected },
+      });
     } catch (err) {
       self.postMessage({ kind: "error", error: String(err?.stack ?? err) });
     }

@@ -33,16 +33,16 @@ cases out as `not-applicable`.
 ## Browser leg
 
 `browser-worker.mjs` is the runtime-linked sibling of
-`js/viewer/browser-worker.mjs` — same reply protocol, same shared
-`harness.mjs` case loop (striping, freshCases, timeouts, mark
-scheduling), no transpiled artifacts: the run message carries
+`js/viewer/browser-worker.mjs` — same reply protocol, the same
+`runSuite` case loop as the Deno leg (striping, freshCases, timeouts,
+tag scheduling), no transpiled artifacts: the run message carries
 `{ bundleUrl, translatorUrl, suiteUrl, env?, missing?, only?, shard?,
 caseTimeoutMs? }` and the worker loads `polyengine-embedder.mjs`, built by
 `just polyengine-assets` from the pinned JSR graph (one platform-neutral
 ES module: embedder API + Translator + runner glue + wasi shims). It drops into
 `page-runner.mjs`'s `runSuitesInPage` via its `workerUrl` parameter —
-page runner and browser driver unchanged. `engine.mjs` is the shared
-glue; `selftest.mjs` drives the same engine path under plain `node`
+page runner and browser driver unchanged. `worker-main.mjs` holds the
+message loop; `selftest.mjs` drives the same `runSuite` path under plain `node`
 (NO `--experimental-wasm-jspi` — the callback ABI needs no engine
 flag), asserting the documented sample/fixture verdicts, trap
 containment, tag scheduling, and striping partition equality; it runs
