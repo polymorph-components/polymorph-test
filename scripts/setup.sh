@@ -4,7 +4,7 @@
 # Rust itself is pinned by rust-toolchain.toml; Node by the workflow.
 set -euo pipefail
 
-WASMTIME_VERSION="47.0.1"
+WASMTIME_VERSION="48.0.1"
 WAC_VERSION="0.10.1"
 WASM_TOOLS_VERSION="1.247.0"
 JUST_VERSION="1.54.0"
