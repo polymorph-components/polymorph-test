@@ -2,8 +2,8 @@
 
 Empirical findings from building and validating the stack, consolidated
 from the original prototype and spike READMEs. Toolchain baseline:
-wasmtime 47.0.1 (`-W component-model-async -S p3`), wac-cli 0.10.1,
-wit-bindgen 0.60, jco 1.26.1, Node 24.18 (`--experimental-wasm-jspi`),
+wasmtime 48.0.1 (`-W component-model-async -S p3`), wac-cli 0.10.1,
+wit-bindgen 0.61, jco 1.26.1, Node 24.18 (`--experimental-wasm-jspi`),
 Rust `wasm32-wasip2` target.
 
 ## Contract / design findings

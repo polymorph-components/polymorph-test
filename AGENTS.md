@@ -96,8 +96,8 @@ with copies; symlinks require `core.symlinks` on Windows.
 
 ## Toolchain
 
-wasmtime 47 (`-W component-model-async -S p3`), wac-cli 0.10, wit-bindgen
-0.60, Node 24 (plain — the selftest legs; no engine flags anywhere:
+wasmtime 48 (`-W component-model-async -S p3`), wac-cli 0.10, wit-bindgen
+0.61, Node 24 (plain — the selftest legs; no engine flags anywhere:
 polyengine's callback ABI needs no JSPI), deno 2.9 (polyengine runner
 leg + browser-asset build; polyengine itself is consumed from JSR as exact
 release pins — see `js/runner-polyengine/README.md`), Rust
